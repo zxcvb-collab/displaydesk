@@ -40,7 +40,46 @@ function getUploadedVideos(slides: Slide[]): string[] {
     return slides.filter(s => s.type === 'video').map(s => s.url)
 }
 
+type FullscreenElement = HTMLElement & {
+    webkitRequestFullscreen?: () => Promise<void> | void
+    mozRequestFullScreen?: () => Promise<void> | void
+    msRequestFullscreen?: () => Promise<void> | void
+}
+
+function isFullscreenActive(): boolean {
+    if (typeof document === 'undefined') return false
+    const doc = document as Document & {
+        webkitFullscreenElement?: Element | null
+        mozFullScreenElement?: Element | null
+        msFullscreenElement?: Element | null
+    }
+    return !!(
+        document.fullscreenElement ||
+        doc.webkitFullscreenElement ||
+        doc.mozFullScreenElement ||
+        doc.msFullscreenElement
+    )
+}
+
+async function requestFullscreenSafe(el: HTMLElement) {
+    const target = el as FullscreenElement
+    try {
+        if (target.requestFullscreen) {
+            await target.requestFullscreen()
+        } else if (target.webkitRequestFullscreen) {
+            await target.webkitRequestFullscreen()
+        } else if (target.mozRequestFullScreen) {
+            await target.mozRequestFullScreen()
+        } else if (target.msRequestFullscreen) {
+            await target.msRequestFullscreen()
+        }
+    } catch {
+        // TV browsers frequently throw or silently fail — ignore and continue playback
+    }
+}
+
 export default function TVPlayer({ pin, initialSlides }: { pin: string; initialSlides: Slide[] }) {
+    const containerRef = useRef<HTMLDivElement>(null)
     const playerRef = useRef<HTMLDivElement>(null)
     const videoRef = useRef<HTMLVideoElement>(null)
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -48,6 +87,8 @@ export default function TVPlayer({ pin, initialSlides }: { pin: string; initialS
     const [slides, setSlides] = useState(initialSlides)
     const [ready, setReady] = useState(false)
     const [currentType, setCurrentType] = useState<'youtube' | 'video' | null>(null)
+    const [started, setStarted] = useState(false)
+    const [isFullscreen, setIsFullscreen] = useState(false)
     const currentIndex = useRef(0)
 
     // Extract valid video IDs and uploaded videos
@@ -87,6 +128,28 @@ export default function TVPlayer({ pin, initialSlides }: { pin: string; initialS
             return current
         })
     }, [playSlideIndex])
+
+    // Track fullscreen state across browser-specific events
+    useEffect(() => {
+        const handleChange = () => setIsFullscreen(isFullscreenActive())
+        const events = ['fullscreenchange', 'webkitfullscreenchange', 'mozfullscreenchange', 'MSFullscreenChange']
+        events.forEach((e) => document.addEventListener(e, handleChange))
+        return () => events.forEach((e) => document.removeEventListener(e, handleChange))
+    }, [])
+
+    const handleStart = useCallback(() => {
+        setStarted(true)
+        if (containerRef.current) {
+            requestFullscreenSafe(containerRef.current)
+        }
+        // Some TV browsers block muted autoplay until a real gesture occurs — nudge playback here
+        if (currentType === 'video' && videoRef.current) {
+            videoRef.current.play().catch(() => {})
+        }
+        if (currentType === 'youtube' && ytPlayer.current?.playVideo) {
+            ytPlayer.current.playVideo()
+        }
+    }, [currentType])
 
     // Poll for slide updates every 60 s; update state without interrupting playback
     useEffect(() => {
@@ -176,7 +239,7 @@ export default function TVPlayer({ pin, initialSlides }: { pin: string; initialS
 
     // --- Player ---
     return (
-        <div className="fixed inset-0 bg-black">
+        <div ref={containerRef} className="fixed inset-0 bg-black">
             <div ref={playerRef} className={`w-full h-full ${currentType === 'video' ? 'hidden' : ''}`} />
             <video
                 ref={videoRef}
@@ -185,6 +248,30 @@ export default function TVPlayer({ pin, initialSlides }: { pin: string; initialS
                 onEnded={advanceSlide}
                 onError={advanceSlide}
             />
+
+            {/* Tap-to-start overlay — fullscreen can only be requested from a real user gesture */}
+            {!started && (
+                <button
+                    onClick={handleStart}
+                    className="fixed inset-0 z-50 flex flex-col items-center justify-center bg-black text-white cursor-pointer"
+                >
+                    <svg width="56" height="56" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" className="mb-6 opacity-80">
+                        <path d="M8 3H5a2 2 0 0 0-2 2v3M16 3h3a2 2 0 0 1 2 2v3M8 21H5a2 2 0 0 1-2-2v-3M16 21h3a2 2 0 0 0 2-2v-3" />
+                    </svg>
+                    <p className="text-2xl font-semibold mb-2">Tap to start</p>
+                    <p className="text-sm opacity-50">Starts fullscreen playback for this screen</p>
+                </button>
+            )}
+
+            {/* Small re-enter-fullscreen affordance if fullscreen is exited mid-playback */}
+            {started && !isFullscreen && (
+                <button
+                    onClick={handleStart}
+                    className="fixed top-4 right-4 z-50 px-3 py-2 bg-white/10 hover:bg-white/20 rounded-lg text-white text-xs"
+                >
+                    Enter fullscreen
+                </button>
+            )}
         </div>
     )
 }
