@@ -1,0 +1,51 @@
+import { redirect, notFound } from 'next/navigation'
+import { createClient } from '@/lib/supabase/server'
+import ScreenEditor from './screen-editor'
+
+export const dynamic = 'force-dynamic'
+
+export default async function ScreenPage({ params }: { params: Promise<{ id: string }> }) {
+    const { id } = await params
+    const supabase = await createClient()
+
+    const { data: { user } } = await supabase.auth.getUser()
+    if (!user) redirect('/login')
+
+    const { data: org } = await supabase
+        .from('organisations')
+        .select('id')
+        .eq('owner_id', user.id)
+        .single()
+
+    if (!org) redirect('/login')
+
+    const { data: screen } = await supabase
+        .from('screens')
+        .select('id, name, pin, slides')
+        .eq('id', id)
+        .eq('org_id', org.id)
+        .single()
+
+    if (!screen) notFound()
+
+    const slides = Array.isArray(screen.slides)
+        ? screen.slides.map((slide: unknown) => {
+            if (typeof slide === 'object' && slide !== null && 'url' in slide && 'type' in slide) {
+                return slide as { url: string; type: 'youtube' | 'video' }
+            }
+            if (typeof slide === 'string') {
+                return { url: slide, type: 'youtube' as const }
+            }
+            return { url: '', type: 'youtube' as const }
+        })
+        : []
+
+    return (
+        <ScreenEditor
+            screen={{
+                ...screen,
+                slides,
+            }}
+        />
+    )
+}
