@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useRef } from 'react'
+import { useState, useRef, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import { createClient } from '@/lib/supabase/client'
@@ -18,6 +18,14 @@ type Screen = {
     name: string
     pin: string
     slides: Slide[]
+}
+
+type ActivityEntry = {
+    id: string
+    action: 'upload' | 'delete'
+    detail: string | null
+    actor_email: string | null
+    created_at: string
 }
 
 function getYouTubeId(url: string): string | null {
@@ -62,6 +70,38 @@ export default function ScreenEditor({ screen, orgId }: { screen: Screen; orgId:
     const [deleting, setDeleting] = useState(false)
     const nameRef = useRef(screen.name)
     const fileInputRef = useRef<HTMLInputElement>(null)
+    const [activity, setActivity] = useState<ActivityEntry[]>([])
+    const actorEmailRef = useRef('')
+
+    useEffect(() => {
+        (async () => {
+            const { data: { user } } = await supabase.auth.getUser()
+            actorEmailRef.current = user?.email ?? ''
+
+            const { data } = await supabase
+                .from('screen_activity')
+                .select('*')
+                .eq('screen_id', screen.id)
+                .order('created_at', { ascending: false })
+            setActivity(data ?? [])
+        })()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [screen.id])
+
+    async function logActivity(action: ActivityEntry['action'], detail: string) {
+        const { data } = await supabase
+            .from('screen_activity')
+            .insert({
+                screen_id: screen.id,
+                org_id: orgId,
+                action,
+                detail,
+                actor_email: actorEmailRef.current,
+            })
+            .select()
+            .single()
+        if (data) setActivity((prev) => [data, ...prev])
+    }
 
     async function saveName() {
         if (name === nameRef.current) return
@@ -88,6 +128,7 @@ export default function ScreenEditor({ screen, orgId }: { screen: Screen; orgId:
             return
         }
         updateSlides([...slides, { url: trimmed, type: 'youtube' }])
+        logActivity('upload', trimmed)
         setUrlInput('')
     }
 
@@ -117,6 +158,7 @@ export default function ScreenEditor({ screen, orgId }: { screen: Screen; orgId:
 
             const { data: urlData } = supabase.storage.from('videos').getPublicUrl(data.path)
             updateSlides([...slides, { url: urlData.publicUrl, type: 'video' }])
+            logActivity('upload', file.name)
         } finally {
             setUploading(false)
             if (fileInputRef.current) fileInputRef.current.value = ''
@@ -143,6 +185,7 @@ export default function ScreenEditor({ screen, orgId }: { screen: Screen; orgId:
         }
 
         updateSlides(slides.filter((_, i) => i !== index))
+        logActivity('delete', slide.url)
     }
 
     function moveSlide(index: number, direction: -1 | 1) {
@@ -302,20 +345,53 @@ export default function ScreenEditor({ screen, orgId }: { screen: Screen; orgId:
 
                 <div className="bg-white border border-zinc-200 rounded-2xl p-4">
                     <p className="text-sm font-medium text-zinc-700 mb-3">Or upload a video file</p>
-                    <div className="flex gap-2">
-                        <input
-                            ref={fileInputRef}
-                            type="file"
-                            accept="video/*"
-                            onChange={handleFileUpload}
-                            disabled={uploading}
-                            className="flex-1 px-3 py-2 border border-zinc-300 rounded-lg text-sm"
-                        />
-                        <Button disabled={uploading}>{uploading ? 'Uploading…' : 'Upload'}</Button>
-                    </div>
+                    <input
+                        ref={fileInputRef}
+                        type="file"
+                        accept="video/*"
+                        onChange={handleFileUpload}
+                        disabled={uploading}
+                        className="hidden"
+                    />
+                    <Button
+                        onClick={() => fileInputRef.current?.click()}
+                        disabled={uploading}
+                    >
+                        {uploading ? 'Uploading…' : 'Choose video file'}
+                    </Button>
                 </div>
 
                 {urlError && <p className="text-sm text-red-600">{urlError}</p>}
+            </div>
+
+            {/* Activity log */}
+            <div className="mt-8">
+                <h2 className="font-semibold text-zinc-900 mb-4">Activity</h2>
+                {activity.length === 0 ? (
+                    <p className="text-sm text-zinc-400">No activity yet</p>
+                ) : (
+                    <div className="space-y-2">
+                        {activity.map((entry) => (
+                            <div
+                                key={entry.id}
+                                className="flex items-center gap-3 bg-white border border-zinc-200 rounded-xl px-4 py-2.5 text-sm"
+                            >
+                                <Badge variant={entry.action === 'upload' ? 'default' : 'outline'} className="shrink-0">
+                                    {entry.action === 'upload' ? 'Added' : 'Deleted'}
+                                </Badge>
+                                <span className="text-zinc-600 truncate flex-1 min-w-0 font-mono text-xs">
+                                    {entry.detail}
+                                </span>
+                                <span className="text-zinc-400 text-xs shrink-0">
+                                    {entry.actor_email}
+                                </span>
+                                <span className="text-zinc-400 text-xs shrink-0">
+                                    {new Date(entry.created_at).toLocaleString()}
+                                </span>
+                            </div>
+                        ))}
+                    </div>
+                )}
             </div>
         </div>
     )
