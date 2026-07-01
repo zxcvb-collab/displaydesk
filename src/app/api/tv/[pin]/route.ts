@@ -5,11 +5,8 @@ export async function GET(_request: Request, { params }: { params: Promise<{ pin
     const { pin } = await params
     const supabase = createAnonClient()
 
-    const { data: screen, error } = await supabase
-        .from('screens')
-        .select('slides')
-        .eq('pin', pin)
-        .single()
+    const { data: screens, error } = await supabase.rpc('get_screen_by_pin', { p_pin: pin })
+    const screen = screens?.[0]
 
     if (error || !screen) return NextResponse.json({ error: 'Not found' }, { status: 404 })
 
