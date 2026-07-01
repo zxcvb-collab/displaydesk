@@ -43,6 +43,13 @@ async function patchScreen(id: string, updates: { name?: string; slides?: Slide[
     if (!res.ok) throw new Error('Failed to save')
 }
 
+function extractStoragePath(publicUrl: string): string | null {
+    const marker = '/object/public/videos/'
+    const idx = publicUrl.indexOf(marker)
+    if (idx === -1) return null
+    return decodeURIComponent(publicUrl.slice(idx + marker.length))
+}
+
 export default function ScreenEditor({ screen, orgId }: { screen: Screen; orgId: string }) {
     const router = useRouter()
     const supabase = createClient()
@@ -116,7 +123,25 @@ export default function ScreenEditor({ screen, orgId }: { screen: Screen; orgId:
         }
     }
 
-    function removeSlide(index: number) {
+    async function removeSlide(index: number) {
+        const slide = slides[index]
+
+        if (slide.type === 'video') {
+            const confirmed = confirm(
+                'This will permanently delete the uploaded video file from storage. This cannot be undone. Continue?'
+            )
+            if (!confirmed) return
+
+            const path = extractStoragePath(slide.url)
+            if (path) {
+                const { error } = await supabase.storage.from('videos').remove([path])
+                if (error) {
+                    setUrlError(`Failed to delete video file: ${error.message}`)
+                    return
+                }
+            }
+        }
+
         updateSlides(slides.filter((_, i) => i !== index))
     }
 
@@ -129,11 +154,28 @@ export default function ScreenEditor({ screen, orgId }: { screen: Screen; orgId:
     }
 
     async function deleteScreen() {
-        if (!confirm('Delete this screen? This cannot be undone.')) return
+        const videoSlides = slides.filter((s) => s.type === 'video')
+        const message = videoSlides.length > 0
+            ? `Delete this screen? This will also permanently delete ${videoSlides.length} uploaded video file${videoSlides.length > 1 ? 's' : ''} from storage. This cannot be undone.`
+            : 'Delete this screen? This cannot be undone.'
+
+        if (!confirm(message)) return
+
         setDeleting(true)
-        await fetch(`/api/screens/${screen.id}`, { method: 'DELETE' })
-        router.push('/dashboard')
-        router.refresh()
+        try {
+            const paths = videoSlides
+                .map((s) => extractStoragePath(s.url))
+                .filter((p): p is string => p !== null)
+            if (paths.length > 0) {
+                await supabase.storage.from('videos').remove(paths)
+            }
+
+            await fetch(`/api/screens/${screen.id}`, { method: 'DELETE' })
+            router.push('/dashboard')
+            router.refresh()
+        } finally {
+            setDeleting(false)
+        }
     }
 
     return (
