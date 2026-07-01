@@ -90,6 +90,7 @@ export default function TVPlayer({ pin, initialSlides }: { pin: string; initialS
     const [started, setStarted] = useState(false)
     const [isFullscreen, setIsFullscreen] = useState(false)
     const currentIndex = useRef(0)
+    const hasInitialized = useRef(false)
 
     // Extract valid video IDs and uploaded videos
     const youtubeIds = getVideoIds(slides)
@@ -212,9 +213,16 @@ export default function TVPlayer({ pin, initialSlides }: { pin: string; initialS
     // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [])
 
-    // When slides change after initial load, keep current video but update future queue
+    // Initialize playback of the first slide once the YouTube API is ready,
+    // regardless of its type — previously only ran for youtube slides via the
+    // player's initial videoId, so a video-only screen never started playing.
     useEffect(() => {
         if (!ready || slides.length === 0) return
+        if (!hasInitialized.current) {
+            hasInitialized.current = true
+            playSlideIndex(0, slides)
+            return
+        }
         if (currentIndex.current >= slides.length) {
             playSlideIndex(0, slides)
         }
