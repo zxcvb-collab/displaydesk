@@ -251,7 +251,7 @@ export default function TVPlayer({ pin, initialSlides }: { pin: string; initialS
             <div ref={playerRef} className={`w-full h-full ${currentType === 'video' ? 'hidden' : ''}`} />
             <video
                 ref={videoRef}
-                className={`fixed inset-0 w-full h-full object-contain ${currentType === 'youtube' ? 'hidden' : ''}`}
+                className={`fixed inset-0 w-full h-full object-cover ${currentType === 'youtube' ? 'hidden' : ''}`}
                 muted
                 onEnded={advanceSlide}
                 onError={advanceSlide}
