@@ -1,140 +1,96 @@
-# Phase 1 MVP Implementation Checklist
+# Phase 1 MVP — Status & Test Plan
 
-## ✅ Code Implementation Complete
+Last updated after fixing: localhost redirects in production, direct-to-storage
+video upload, storage RLS column bug, TV player not starting on video-only
+screens, and RLS/security advisor warnings.
 
-### Video Upload
-- [x] Upload API endpoint `/api/screens/[id]/upload` - handles video file uploads to Supabase Storage
-- [x] File validation (video/* MIME type)
-- [x] Unique filename generation per org/screen
-- [x] Public URL generation
+## ✅ Verified Working (tested end-to-end)
 
-### Admin UI Updates
-- [x] Screen editor now accepts both YouTube URLs and file uploads
-- [x] File input with upload progress
-- [x] Thumbnail previews (YouTube thumbnails + icon for uploaded videos)
-- [x] Slide type badges (YouTube vs Uploaded)
-- [x] Move/delete controls for all slide types
+- [x] Signup → org auto-created (via `handle_new_user` DB trigger)
+- [x] Email confirmation link lands on production domain (after Site URL fix)
+- [x] Dashboard loads screens for the logged-in org
+- [x] "+ Add screen" creates a screen with a unique PIN, redirects correctly
+- [x] Free plan caps at 1 screen — button disables at the limit
+- [x] Video upload goes directly browser → Supabase Storage (bypasses Vercel's
+      4.5MB serverless body limit entirely)
+- [x] Uploaded video shows "Uploaded" badge with thumbnail icon
+- [x] YouTube URL adds with thumbnail preview
+- [x] `/tv/[pin]` shows "Tap to start" overlay, requests fullscreen on tap
+- [x] Uploaded video plays and autoplays on TV (first-slide init bug fixed)
+- [x] Storage RLS policies enforce org-folder ownership correctly (ambiguous
+      column bug fixed)
+- [x] RLS enabled + enforced on `organisations` and `screens`
+- [x] No public/anon execution of `handle_new_user` / `rls_auto_enable` RPCs
 
-### TV Player Updates
-- [x] Support for HTML5 `<video>` tag playback
-- [x] Auto-detect video type (YouTube vs uploaded)
-- [x] Show/hide YouTube player and video element based on current type
-- [x] Auto-advance for both video types
-- [x] Error handling - advance on playback error
-- [x] Muted playback for autoplay compatibility
+## 🧪 Not Yet Tested — Run These Next
 
-### Data Model
-- [x] Slides changed from string[] to Slide[] with `{ url, type }` structure
-- [x] Backward compatibility for old YouTube-only data (auto-converted)
-- [x] Safe serialization to/from Supabase
+### Admin flow
+- [ ] **Reorder videos** (up/down arrows) with a mix of YouTube + uploaded slides
+- [ ] **Delete a single video** from the list — confirm it's removed from the
+      slides array (note: this does NOT delete the file from Storage — see
+      "Known gap" below)
+- [ ] **Rename a screen** — blur the name field, refresh, confirm it persists
+- [ ] **Delete a whole screen** — confirm it disappears from dashboard and
+      that a free-plan account can then add a new one again
+- [ ] **Sign out** → confirm redirect to `/login` and that `/dashboard` then
+      redirects back to `/login` when visited directly
 
----
+### TV flow
+- [ ] **YouTube-first, video-second** (and reverse order) — confirm
+      auto-advance works correctly in both directions
+- [ ] **Multiple uploaded videos in sequence** — not just one
+- [ ] **Loop back to first slide** after the last one ends
+- [ ] **Live update while TV is playing** — change slides in the admin, wait
+      up to 60s, confirm the TV picks up changes without a manual refresh
+      (this is the polling mechanism — verify it doesn't restart the currently
+      playing video mid-playback)
+- [ ] **Exit fullscreen mid-playback** (e.g. remote's back button) — confirm
+      the small "Enter fullscreen" button appears and works
+- [ ] **Bad/broken video URL** — confirm it skips to the next slide instead
+      of hanging
+- [ ] **Screen with zero slides** — confirm the "No videos added yet" + PIN
+      screen shows correctly
+- [ ] **Actual TV hardware** (Tizen / webOS / Fire TV Silk) — Fullscreen API
+      and video codec support can behave differently than desktop Chrome
 
-## ⏳ Manual Setup Required
+### Security / access control
+- [ ] **Cross-org isolation** — while logged in as Org A, try `PATCH`/`DELETE`
+      on a screen ID belonging to Org B directly via the API (e.g. curl or
+      browser devtools) → should get 401/no rows affected, never another
+      org's data
+- [ ] **Anonymous access** — confirm `/tv/[pin]` works logged out, but the
+      dashboard/admin routes reject anonymous access
+- [ ] **Re-run Supabase Security Advisor** after all fixes — confirm the list
+      is fully clear (leaked-password-protection warning aside, which is a
+      free-tier limitation, not fixable in code)
 
-### 1. Create Supabase Storage Bucket
-**Status:** Manual step via UI  
-**Steps:**
-1. Go to https://app.supabase.com/project/YOUR_PROJECT_ID/storage/buckets
-2. Click "New bucket"
-3. Name it `videos`
-4. Set visibility to **Public** (so TVs can play videos)
-5. Click "Create bucket"
+## ⚠️ Known Gaps (not bugs, just unbuilt)
 
-### 2. Enable Storage RLS
-**Status:** Ready - execute SQL  
-**Steps:**
-1. Go to Supabase SQL Editor
-2. Run the SQL from: `supabase-storage-setup.sql`
-3. This sets up:
-   - Upload permissions for authenticated users (their org only)
-   - Read permissions for authenticated + anonymous users
-   - Delete permissions for authenticated users (their org only)
+- **Orphaned storage files**: deleting a video slide or an entire screen does
+  not delete the underlying file from the `videos` Storage bucket. Files
+  accumulate silently. Low priority until storage costs matter, but worth a
+  cleanup job eventually.
+- **No remote pairing** — TVs must manually visit `/tv/[pin]`, no phone-based
+  pairing flow (that's the Phase 2 concept from the original PRD).
+- **No plan upgrade path** — `plan` field exists and is enforced, but there's
+  no billing/checkout flow to actually move a user from free → starter/pro.
+- **No video transcoding** — uploads must already be in a browser-playable
+  format (H.264 MP4 is safest); TV browsers vary in codec support.
+- **Leaked password protection** — disabled, gated behind Supabase Pro plan.
 
-### 3. Verify Environment Variables
-**Check that these exist in `.env.local`:**
-```
-NEXT_PUBLIC_SUPABASE_URL=https://xxxx.supabase.co
-NEXT_PUBLIC_SUPABASE_ANON_KEY=eyJxxxxx
-SUPABASE_SERVICE_ROLE_KEY=eyJxxxxx
-```
+## 🔧 Troubleshooting Reference
 
----
+**Upload fails silently** — check the browser console for a Supabase Storage
+RLS error. If you see one, verify the policies from `supabase-storage-fix.sql`
+are applied (not the older, buggy ones from `supabase-storage-setup.sql`).
 
-## 🧪 Testing Checklist
+**Auth links go to localhost** — Supabase Dashboard → Authentication → URL
+Configuration → confirm Site URL is your production domain, not localhost.
 
-### Admin Flow
-- [ ] Open dashboard → Click "+ Add screen"
-- [ ] New screen created with PIN
-- [ ] Click on screen to edit
-- [ ] Add YouTube URL → Click "Add" → Video appears with thumbnail
-- [ ] Upload an MP4 file → Blue icon appears, "Uploaded" label shown
-- [ ] Reorder videos (up/down arrows work)
-- [ ] Delete a video → Video removed
-- [ ] Refresh page → Slides persist
+**TV shows blank YouTube logo, nothing plays** — should be fixed as of the
+first-slide-initialization patch; if it recurs, check browser console for
+YouTube IFrame API load failures (network/ad-blocker issues).
 
-### TV Flow
-- [ ] Navigate to `/tv/[PIN]` (use actual PIN from screen)
-- [ ] YouTube video plays fullscreen, muted, no controls
-- [ ] When YouTube video ends → next video auto-plays
-- [ ] When uploaded video ends → next video auto-plays
-- [ ] Loop works (last → first)
-- [ ] Video plays on TV browsers (test on Samsung Tizen / LG webOS if available)
-- [ ] Update slides on admin while TV is playing → TV picks up changes on next cycle
-
-### Error Handling
-- [ ] Upload invalid file type → shows "Please select a video file"
-- [ ] Upload fails (network error) → shows error message
-- [ ] Video file fails to load on TV → skips to next video
-- [ ] No videos added → shows PIN display with "No videos added yet"
-
----
-
-## 📝 Known Limitations / Phase 2
-
-- [ ] No remote pairing PIN system yet (TVs manually visit `/tv/[pin]` URL)
-- [ ] No cloud sync - must update each TV with its own PIN
-- [ ] No multi-user support
-- [ ] No video duration display or progress bar
-- [ ] No transcoding - uploads must be MP4 format that browsers support
-- [ ] No bandwidth throttling - large files may take time to upload
-
----
-
-## 🚀 Deployment
-
-Once testing passes:
-```bash
-# 1. Commit changes
-git add .
-git commit -m "Add video upload and HTML5 playback support"
-
-# 2. Push to production
-git push origin main
-
-# 3. Supabase migrations run automatically
-# 4. Next.js deployment via your hosting (Vercel/Railway/etc)
-```
-
----
-
-## 🔧 Troubleshooting
-
-**Q: Upload succeeds but video won't play on TV**
-- A: Check Supabase Storage bucket is set to Public
-- A: Check file is MP4 format (not MOV, MKV, etc)
-- A: Check browser console for CORS errors
-
-**Q: "No file provided" error**
-- A: Check file input is working (try different browser)
-- A: Check request size limits aren't hit (adjust if needed)
-
-**Q: YouTube plays but uploaded video doesn't**
-- A: Check HTML5 video tag is visible (not hidden by CSS)
-- A: Check video MIME type is correct
-- A: Try in different browser (may be codec support)
-
-**Q: Slides array is empty on TV**
-- A: Check `/api/tv/[pin]` endpoint returns data
-- A: Check PIN is correct
-- A: Check screen belongs to correct org
+**"Add screen" redirects to localhost** — should be fixed (uses request
+origin now, not an env var fallback); if it recurs, check for any remaining
+hardcoded `localhost` references in API routes.
