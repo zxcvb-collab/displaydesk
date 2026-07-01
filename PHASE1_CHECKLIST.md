@@ -28,19 +28,30 @@ screens, and RLS/security advisor warnings.
       reads only work via exact-match PIN through a dedicated RPC.
 - [x] `organisations` table checked for equivalent hidden policies — clean,
       no blanket-read leak there
+- [x] Sign-out 405 fixed (redirect was preserving POST method; forced 303)
+- [x] Upload button fixed (had no onClick — only the raw file input worked)
+- [x] Video scaling — uses `object-contain`, never crops menu content, even
+      though that means letterboxing on aspect-ratio mismatches (deliberate
+      tradeoff for a menu display, confirmed after testing `object-cover`
+      cropped title/footer rows)
+- [x] Single-video deletion now confirms and permanently deletes the file
+      from Storage (previously only removed the database reference)
+- [x] Screen deletion now warns about and cleans up all uploaded video files
+      before removing the screen row
+- [x] Per-screen activity log — tracks uploads/deletions with actor email
+      and timestamp, append-only
 
 ## 🧪 Not Yet Tested — Run These Next
 
 ### Admin flow
-- [ ] **Reorder videos** (up/down arrows) with a mix of YouTube + uploaded slides
-- [ ] **Delete a single video** from the list — confirm it's removed from the
-      slides array (note: this does NOT delete the file from Storage — see
-      "Known gap" below)
+- [x] **Reorder videos** — confirmed working
+- [ ] **Delete a single video** — confirm workflow now shows the storage-
+      deletion warning and actually removes the file (retest after the
+      button/dialog fixes; earlier test likely hit a stale deployment)
 - [ ] **Rename a screen** — blur the name field, refresh, confirm it persists
-- [ ] **Delete a whole screen** — confirm it disappears from dashboard and
-      that a free-plan account can then add a new one again
-- [ ] **Sign out** → confirm redirect to `/login` and that `/dashboard` then
-      redirects back to `/login` when visited directly
+- [x] **Delete a whole screen** — confirmed working; now also confirms and
+      cleans up storage
+- [ ] **Sign out** — retest after the 303 redirect fix
 
 ### TV flow
 - [ ] **YouTube-first, video-second** (and reverse order) — confirm
@@ -72,10 +83,10 @@ screens, and RLS/security advisor warnings.
 
 ## ⚠️ Known Gaps (not bugs, just unbuilt)
 
-- **Orphaned storage files**: deleting a video slide or an entire screen does
-  not delete the underlying file from the `videos` Storage bucket. Files
-  accumulate silently. Low priority until storage costs matter, but worth a
-  cleanup job eventually.
+- ~~Orphaned storage files~~ — fixed; deletion now cleans up Storage. Files
+  created before the fix (from earlier testing) may still be orphaned in the
+  bucket and can be removed manually via Supabase Storage if not referenced
+  by any current screen.
 - **No remote pairing** — TVs must manually visit `/tv/[pin]`, no phone-based
   pairing flow (that's the Phase 2 concept from the original PRD).
 - **No plan upgrade path** — `plan` field exists and is enforced, but there's
