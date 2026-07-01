@@ -42,6 +42,7 @@ export default async function ScreenPage({ params }: { params: Promise<{ id: str
 
     return (
         <ScreenEditor
+            orgId={org.id}
             screen={{
                 ...screen,
                 slides,

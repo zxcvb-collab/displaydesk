@@ -3,6 +3,7 @@
 import { useState, useRef } from 'react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
+import { createClient } from '@/lib/supabase/client'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Badge } from '@/components/ui/badge'
@@ -42,8 +43,9 @@ async function patchScreen(id: string, updates: { name?: string; slides?: Slide[
     if (!res.ok) throw new Error('Failed to save')
 }
 
-export default function ScreenEditor({ screen }: { screen: Screen }) {
+export default function ScreenEditor({ screen, orgId }: { screen: Screen; orgId: string }) {
     const router = useRouter()
+    const supabase = createClient()
     const [name, setName] = useState(screen.name)
     const [slides, setSlides] = useState<Slide[]>(screen.slides ?? [])
     const [urlInput, setUrlInput] = useState('')
@@ -94,22 +96,20 @@ export default function ScreenEditor({ screen }: { screen: Screen }) {
 
         setUploading(true)
         try {
-            const formData = new FormData()
-            formData.append('file', file)
+            const ext = file.name.split('.').pop() || 'mp4'
+            const path = `${orgId}/${screen.id}/${Date.now()}.${ext}`
 
-            const res = await fetch(`/api/screens/${screen.id}/upload`, {
-                method: 'POST',
-                body: formData,
-            })
+            const { data, error } = await supabase.storage
+                .from('videos')
+                .upload(path, file, { upsert: false })
 
-            if (!res.ok) {
-                const err = await res.json()
-                setUrlError(err.error || 'Upload failed')
+            if (error) {
+                setUrlError(error.message || 'Upload failed')
                 return
             }
 
-            const { url } = await res.json()
-            updateSlides([...slides, { url, type: 'video' }])
+            const { data: urlData } = supabase.storage.from('videos').getPublicUrl(data.path)
+            updateSlides([...slides, { url: urlData.publicUrl, type: 'video' }])
         } finally {
             setUploading(false)
             if (fileInputRef.current) fileInputRef.current.value = ''
