@@ -1,0 +1,95 @@
+# Billing & Account Lifecycle — PRD
+
+## 1. Overview
+
+DisplayDesk moves from a purely feature-gated free tier to a paid subscription
+model via Stripe, with a time-boxed free tier (not indefinite) and an
+automated lifecycle that disables, warns, and eventually deletes accounts
+that never convert.
+
+## 2. Pricing Tiers
+
+Infra cost analysis (Supabase Pro $25/mo + Vercel Pro $20/mo fixed floor,
+near-zero marginal cost per screen up to ~600+ screens assuming proper video
+caching — see "Technical Prerequisite" below) and market comparables
+($10-15/screen/month typical for small-business digital signage in 2026)
+inform the following:
+
+| Tier | Price | Included screens | Additional screen |
+|---|---|---|---|
+| Free | $0 | 1 | — (not purchasable beyond 1) |
+| Starter | $15/mo | 2 | +$8/screen |
+| Pro | $39/mo | 5 | +$6/screen |
+| Business | $89/mo | 15 | +$4/screen |
+
+Billed monthly via Stripe Checkout (hosted page — we never handle card data
+directly). No annual billing in this phase.
+
+## 3. Free Tier Lifecycle
+
+The free tier is a **3-month trial**, not a permanent tier, followed by a
+grace period before permanent deletion:
+
+| Elapsed time | Event |
+|---|---|
+| Day 0 | Signup, org created, 1 free screen available |
+| ~Month 3 (before cutoff) | **Warning email**: "Your free trial ends soon — upgrade to keep your screen live" |
+| Month 3 | If not upgraded: **soft-disable**. TV stops playing (screen shows an "upgrade required" state instead of content), dashboard access blocked. **All data retained** — instantly reversible by upgrading. |
+| ~Month 9 (before cutoff) | **Warning email**: "Your account will be permanently deleted soon — upgrade to restore access" |
+| Month 9 | If still not upgraded: **hard delete**. Org, screens, and all uploaded video files in Storage are permanently removed. Irreversible. |
+
+Upgrading at any point before Month 9 fully restores the account with no
+data loss.
+
+## 4. Technical Requirements
+
+### Stripe
+- Stripe Checkout (hosted) for subscription purchase
+- Stripe Customer Portal for self-service plan changes/cancellation
+- Webhook handler for subscription lifecycle events (`checkout.session.completed`,
+  `customer.subscription.updated`, `customer.subscription.deleted`) to keep
+  `organisations.plan` in sync
+- Metered add-on billing for screens beyond a tier's included count (Stripe
+  usage-based pricing, or a simpler quantity-based line item recalculated on
+  screen add/remove)
+
+### Email
+- Supabase's built-in email only covers auth flows (confirmation, password
+  reset) — cannot send custom lifecycle emails
+- **Needs a transactional email provider** — recommend Resend (fits the
+  Next.js/Vercel stack, 3,000 free emails/month)
+- Email templates needed: trial-ending warning (month ~3), deletion warning
+  (month ~9)
+
+### Scheduling
+- Needs a recurring job to scan for orgs crossing the month-3 warning,
+  month-3 disable, month-9 warning, and month-9 delete thresholds
+- Candidates: Vercel Cron (simple, integrates with existing Next.js API
+  routes) or Supabase `pg_cron` (runs in the database directly)
+
+### Schema additions (organisations table)
+- `status` — enum: `active` | `disabled` | `pending_deletion` (or similar)
+- `trial_started_at` — defaults to `created_at` for free-tier orgs
+- `trial_warning_sent_at`, `deletion_warning_sent_at` — prevent duplicate
+  emails on repeated cron runs
+- `stripe_customer_id`, `stripe_subscription_id` — for webhook reconciliation
+
+### Technical Prerequisite (cost protection)
+Video uploads currently have no explicit `cacheControl` set on the Supabase
+Storage upload call, falling back to the platform default (1 hour). Since
+menu videos rarely change and the app's own polling already signals when
+content *has* changed, this should be set to a long duration (e.g. 1 year)
+to minimize egress cost from TVs re-validating hourly, 24/7, across
+potentially hundreds of screens.
+
+## 5. Open Items / Not Yet Decided
+
+- Exact Stripe product/price IDs (created once pricing is finalized in the
+  Stripe dashboard)
+- Cron mechanism choice (Vercel Cron vs. `pg_cron`)
+- Email template copy/design
+- Whether the month-9 deletion warning email includes a one-click
+  reactivate/upgrade link vs. requiring a full login + upgrade flow
+- Grace-period edge case: what happens if a customer upgrades mid-warning-
+  period — do warning flags reset immediately? (Assumed yes, but not yet
+  built)
