@@ -12,15 +12,22 @@ that never convert.
 Infra cost analysis (Supabase Pro $25/mo + Vercel Pro $20/mo fixed floor,
 near-zero marginal cost per screen up to ~600+ screens assuming proper video
 caching — see "Technical Prerequisite" below) and market comparables
-($10-15/screen/month typical for small-business digital signage in 2026)
-inform the following:
+($8-30/screen/month typical for small-business digital signage in 2026,
+$10-15/screen most common) inform the following. Pricing is deliberately set
+at the low end of the market to prioritize customer acquisition over margin
+per customer, since marginal infra cost per screen is near-zero at expected
+scale:
 
-| Tier | Price | Included screens | Additional screen |
-|---|---|---|---|
-| Free | $0 | 1 | — (not purchasable beyond 1) |
-| Starter | $15/mo | 2 | +$8/screen |
-| Pro | $39/mo | 5 | +$6/screen |
-| Business | $89/mo | 15 | +$4/screen |
+| Tier | Price | Included screens | Additional screen | Effective $/screen |
+|---|---|---|---|---|
+| Free | $0 | 1 | — (not purchasable beyond 1) | — |
+| Starter | $9/mo | 2 | +$5/screen | ~$4.50 |
+| Pro | $24/mo | 5 | +$4/screen | ~$4.80 |
+| Business | $59/mo | 15 | +$3/screen | ~$3.93 |
+
+This undercuts the market's low end (~$8/screen) to prioritize market
+capture; revisit upward once there's a paying customer base and real usage
+data to validate the caching cost assumptions below.
 
 Billed monthly via Stripe Checkout (hosted page — we never handle card data
 directly). No annual billing in this phase.
