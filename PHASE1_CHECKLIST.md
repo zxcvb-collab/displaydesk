@@ -21,6 +21,13 @@ screens, and RLS/security advisor warnings.
       column bug fixed)
 - [x] RLS enabled + enforced on `organisations` and `screens`
 - [x] No public/anon execution of `handle_new_user` / `rls_auto_enable` RPCs
+- [x] **Cross-org isolation** — scripted test with two throwaway accounts
+      confirmed writes were always blocked, and found + fixed a real read
+      leak (leftover `screen_public_read` policy let any authenticated user
+      read any other org's screen by guessing its ID). Now closed: public
+      reads only work via exact-match PIN through a dedicated RPC.
+- [x] `organisations` table checked for equivalent hidden policies — clean,
+      no blanket-read leak there
 
 ## 🧪 Not Yet Tested — Run These Next
 
@@ -54,15 +61,14 @@ screens, and RLS/security advisor warnings.
       and video codec support can behave differently than desktop Chrome
 
 ### Security / access control
-- [ ] **Cross-org isolation** — while logged in as Org A, try `PATCH`/`DELETE`
-      on a screen ID belonging to Org B directly via the API (e.g. curl or
-      browser devtools) → should get 401/no rows affected, never another
-      org's data
 - [ ] **Anonymous access** — confirm `/tv/[pin]` works logged out, but the
       dashboard/admin routes reject anonymous access
 - [ ] **Re-run Supabase Security Advisor** after all fixes — confirm the list
       is fully clear (leaked-password-protection warning aside, which is a
       free-tier limitation, not fixable in code)
+- [ ] **Redundant policies cleanup** — `screen_owner_all` and `org_owner_all`
+      duplicate the more specific per-command policies with the same effect.
+      Not a security issue, just noise; consider consolidating for clarity.
 
 ## ⚠️ Known Gaps (not bugs, just unbuilt)
 
