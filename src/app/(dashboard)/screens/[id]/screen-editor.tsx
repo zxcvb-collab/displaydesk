@@ -149,7 +149,7 @@ export default function ScreenEditor({ screen, orgId }: { screen: Screen; orgId:
 
             const { data, error } = await supabase.storage
                 .from('videos')
-                .upload(path, file, { upsert: false })
+                .upload(path, file, { upsert: false, cacheControl: '31536000' })
 
             if (error) {
                 setUrlError(error.message || 'Upload failed')
