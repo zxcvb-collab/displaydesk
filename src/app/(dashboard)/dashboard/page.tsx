@@ -46,6 +46,12 @@ export default async function DashboardPage() {
     const screenList = screens ?? []
     const planLimit = org.plan === 'free' ? 1 : org.plan === 'starter' ? 2 : org.plan === 'pro' ? 5 : 15
 
+    const PLANS = [
+        { id: 'starter', name: 'Starter', price: '$9/mo', screens: 2 },
+        { id: 'pro', name: 'Pro', price: '$24/mo', screens: 5 },
+        { id: 'business', name: 'Business', price: '$59/mo', screens: 15 },
+    ] as const
+
     return (
         <div>
             {/* Header */}
@@ -122,6 +128,41 @@ export default async function DashboardPage() {
                     })}
                 </div>
             )}
+
+            {/* Billing */}
+            <div className="mt-10">
+                <div className="flex items-center justify-between mb-4">
+                    <h2 className="font-semibold text-zinc-900">Billing</h2>
+                    {org.stripe_subscription_id && (
+                        <form action="/api/billing/portal" method="POST">
+                            <Button type="submit" variant="ghost" size="sm">
+                                Manage billing
+                            </Button>
+                        </form>
+                    )}
+                </div>
+                <p className="text-sm text-zinc-500 mb-4">
+                    Current plan: <span className="font-medium text-zinc-900 capitalize">{org.plan}</span>
+                </p>
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                    {PLANS.map((plan) => (
+                        <div key={plan.id} className="bg-white border border-zinc-200 rounded-2xl p-4">
+                            <p className="font-semibold text-zinc-900">{plan.name}</p>
+                            <p className="text-sm text-zinc-500 mb-1">{plan.price}</p>
+                            <p className="text-xs text-zinc-400 mb-3">{plan.screens} screens included</p>
+                            {org.plan === plan.id ? (
+                                <Badge variant="outline">Current plan</Badge>
+                            ) : (
+                                <form action={`/api/billing/checkout?plan=${plan.id}`} method="POST">
+                                    <Button type="submit" size="sm" className="w-full">
+                                        {org.plan === 'free' ? 'Upgrade' : 'Switch'}
+                                    </Button>
+                                </form>
+                            )}
+                        </div>
+                    ))}
+                </div>
+            </div>
         </div>
     )
 }
