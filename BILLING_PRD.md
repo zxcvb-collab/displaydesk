@@ -1,5 +1,14 @@
 # Billing & Account Lifecycle — PRD
 
+## Status
+
+**Subscription billing (§4 Stripe section, minus add-on billing): live in
+production, verified end-to-end** with a real test-mode Checkout → webhook
+→ plan-sync flow. **Free-tier lifecycle automation (§3): designed, not yet
+built** — no cron job, no email sends, no schema additions applied yet. A
+full 7-email sequence covering the lifecycle has been drafted separately
+and is parked for review.
+
 ## 1. Overview
 
 DisplayDesk moves from a purely feature-gated free tier to a paid subscription
@@ -51,52 +60,62 @@ data loss.
 ## 4. Technical Requirements
 
 ### Stripe
-- Stripe Checkout (hosted) for subscription purchase
-- Stripe Customer Portal for self-service plan changes/cancellation
-- Webhook handler for subscription lifecycle events (`checkout.session.completed`,
-  `customer.subscription.updated`, `customer.subscription.deleted`) to keep
-  `organisations.plan` in sync
-- Metered add-on billing for screens beyond a tier's included count (Stripe
-  usage-based pricing, or a simpler quantity-based line item recalculated on
-  screen add/remove)
+- [x] Stripe Checkout (hosted) for subscription purchase — `/api/billing/checkout`
+- [x] Stripe Customer Portal for self-service plan changes/cancellation —
+  `/api/billing/portal` (built, not yet click-tested)
+- [x] Webhook handler for subscription lifecycle events
+  (`checkout.session.completed`, `customer.subscription.updated`,
+  `customer.subscription.deleted`) to keep `organisations.plan` in sync —
+  `/api/billing/webhook`, uses a service-role Supabase client
+- [ ] Metered add-on billing for screens beyond a tier's included count
+  (Stripe usage-based pricing, or a simpler quantity-based line item
+  recalculated on screen add/remove) — **deferred**, screens stay
+  hard-capped at the tier limit for now
 
 ### Email
-- Supabase's built-in email only covers auth flows (confirmation, password
-  reset) — cannot send custom lifecycle emails
-- **Needs a transactional email provider** — recommend Resend (fits the
-  Next.js/Vercel stack, 3,000 free emails/month)
-- Email templates needed: trial-ending warning (month ~3), deletion warning
-  (month ~9)
+- [ ] Supabase's built-in email only covers auth flows (confirmation,
+  password reset) — cannot send custom lifecycle emails. Confirmed, no
+  workaround
+- [ ] **Needs a transactional email provider** — recommend Resend (fits the
+  Next.js/Vercel stack, 3,000 free emails/month). Not yet set up
+- [x] Email copy drafted — full 7-email sequence (welcome, activation
+  nudge, trial-ending warning, disable confirmation, mid-window
+  re-engagement, final deletion warning, deletion confirmation) drafted via
+  the email-sequence skill, parked for review. Not yet templated as
+  React Email/HTML or wired to a send pipeline
 
 ### Scheduling
-- Needs a recurring job to scan for orgs crossing the month-3 warning,
-  month-3 disable, month-9 warning, and month-9 delete thresholds
+- [ ] Needs a recurring job to scan for orgs crossing the month-3 warning,
+  month-3 disable, month-9 warning, and month-9 delete thresholds. Not yet
+  built
 - Candidates: Vercel Cron (simple, integrates with existing Next.js API
   routes) or Supabase `pg_cron` (runs in the database directly)
 
 ### Schema additions (organisations table)
-- `status` — enum: `active` | `disabled` | `pending_deletion` (or similar)
-- `trial_started_at` — defaults to `created_at` for free-tier orgs
-- `trial_warning_sent_at`, `deletion_warning_sent_at` — prevent duplicate
-  emails on repeated cron runs
-- `stripe_customer_id`, `stripe_subscription_id` — for webhook reconciliation
+- [x] `stripe_customer_id`, `stripe_subscription_id` — added, in use
+  (`supabase-billing-schema.sql`)
+- [ ] `status` — enum: `active` | `disabled` | `pending_deletion` (or similar) — not yet added
+- [ ] `trial_started_at` — defaults to `created_at` for free-tier orgs — not yet added
+- [ ] `trial_warning_sent_at`, `deletion_warning_sent_at` — prevent duplicate
+  emails on repeated cron runs — not yet added
 
 ### Technical Prerequisite (cost protection)
-Video uploads currently have no explicit `cacheControl` set on the Supabase
-Storage upload call, falling back to the platform default (1 hour). Since
-menu videos rarely change and the app's own polling already signals when
-content *has* changed, this should be set to a long duration (e.g. 1 year)
-to minimize egress cost from TVs re-validating hourly, 24/7, across
-potentially hundreds of screens.
+- [x] **Done.** Uploads now set `cacheControl: '31536000'` (1 year) on the
+  Supabase Storage upload call. Previously fell back to the platform
+  default (1 hour), which would have meant TVs re-validating hourly, 24/7,
+  across potentially hundreds of screens. Applies to new uploads only —
+  files uploaded before this fix retain their original 1-hour setting.
 
 ## 5. Open Items / Not Yet Decided
 
-- Exact Stripe product/price IDs (created once pricing is finalized in the
-  Stripe dashboard)
-- Cron mechanism choice (Vercel Cron vs. `pg_cron`)
-- Email template copy/design
-- Whether the month-9 deletion warning email includes a one-click
+- [x] ~~Exact Stripe product/price IDs~~ — created:
+  Starter `price_1ToaxC0IIn3DetD8MnxR1Sou`, Pro `price_1ToaxP0IIn3DetD89GJgfdiv`,
+  Business `price_1Toaxb0IIn3DetD8KlSRK0Fv`
+- [ ] Cron mechanism choice (Vercel Cron vs. `pg_cron`)
+- [ ] Email template copy — drafted (see Email section above), not yet
+  built as sendable templates
+- [ ] Whether the month-9 deletion warning email includes a one-click
   reactivate/upgrade link vs. requiring a full login + upgrade flow
-- Grace-period edge case: what happens if a customer upgrades mid-warning-
+- [ ] Grace-period edge case: what happens if a customer upgrades mid-warning-
   period — do warning flags reset immediately? (Assumed yes, but not yet
   built)
