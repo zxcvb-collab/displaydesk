@@ -6,6 +6,23 @@ import { Badge } from '@/components/ui/badge'
 
 export const dynamic = 'force-dynamic'
 
+const ONLINE_THRESHOLD_MS = 2 * 60 * 1000 // 2x the TV's 60s poll interval, plus buffer
+
+function getScreenStatus(lastSeenAt: string | null): 'online' | 'offline' | 'never' {
+    if (!lastSeenAt) return 'never'
+    return Date.now() - new Date(lastSeenAt).getTime() < ONLINE_THRESHOLD_MS ? 'online' : 'offline'
+}
+
+function formatTimeAgo(dateStr: string): string {
+    const diffSec = Math.floor((Date.now() - new Date(dateStr).getTime()) / 1000)
+    if (diffSec < 60) return 'just now'
+    const diffMin = Math.floor(diffSec / 60)
+    if (diffMin < 60) return `${diffMin}m ago`
+    const diffHr = Math.floor(diffMin / 60)
+    if (diffHr < 24) return `${diffHr}h ago`
+    return `${Math.floor(diffHr / 24)}d ago`
+}
+
 export default async function DashboardPage() {
     const supabase = await createClient()
     const { data: { user } } = await supabase.auth.getUser()
@@ -93,7 +110,11 @@ export default async function DashboardPage() {
             {screenList.length > 0 && (
                 <div className="space-y-3">
                     {screenList.map((screen) => {
-                        const slideCount = Array.isArray(screen.slides) ? screen.slides.length : 0
+                        const slides = Array.isArray(screen.slides) ? screen.slides : []
+                        const slideCount = slides.length
+                        const status = getScreenStatus(screen.last_seen_at)
+                        const currentSlide = slides[screen.current_slide_index]
+
                         return (
                             <Link
                                 key={screen.id}
@@ -114,13 +135,33 @@ export default async function DashboardPage() {
                                             </p>
                                         </div>
                                     </div>
-                                    <div className="flex items-center gap-3">
-                                        <Badge variant="outline" className="font-mono text-xs">
-                                            PIN {screen.pin}
-                                        </Badge>
-                                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" className="text-zinc-400">
-                                            <path d="M9 18l6-6-6-6" />
-                                        </svg>
+                                    <div className="flex flex-col items-end gap-1.5">
+                                        <div className="flex items-center gap-3">
+                                            <Badge variant="outline" className="font-mono text-xs">
+                                                PIN {screen.pin}
+                                            </Badge>
+                                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" className="text-zinc-400">
+                                                <path d="M9 18l6-6-6-6" />
+                                            </svg>
+                                        </div>
+                                        <div className="flex items-center gap-1.5 text-xs">
+                                            <span
+                                                className={`w-1.5 h-1.5 rounded-full ${
+                                                    status === 'online' ? 'bg-green-500' : status === 'offline' ? 'bg-amber-500' : 'bg-zinc-300'
+                                                }`}
+                                            />
+                                            {status === 'online' && (
+                                                <span className="text-zinc-500">
+                                                    Online{currentSlide ? ` · Playing ${screen.current_slide_index + 1}/${slideCount} (${currentSlide.type === 'youtube' ? 'YouTube' : 'Uploaded'})` : ''}
+                                                </span>
+                                            )}
+                                            {status === 'offline' && (
+                                                <span className="text-zinc-400">Offline · Last seen {formatTimeAgo(screen.last_seen_at)}</span>
+                                            )}
+                                            {status === 'never' && (
+                                                <span className="text-zinc-400">Not connected yet</span>
+                                            )}
+                                        </div>
                                     </div>
                                 </div>
                             </Link>

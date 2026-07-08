@@ -152,11 +152,14 @@ export default function TVPlayer({ pin, initialSlides }: { pin: string; initialS
         }
     }, [currentType])
 
-    // Poll for slide updates every 60 s; update state without interrupting playback
+    // Poll for slide updates every 60 s; also reports a heartbeat + current
+    // slide index so the admin dashboard can show live status. Fires once
+    // immediately on mount too, so "Online" shows up right away instead of
+    // waiting a full interval.
     useEffect(() => {
-        const interval = setInterval(async () => {
+        const poll = async () => {
             try {
-                const res = await fetch(`/api/tv/${pin}`)
+                const res = await fetch(`/api/tv/${pin}?slide=${currentIndex.current}`)
                 if (!res.ok) return
                 const { slides: fresh } = await res.json()
                 setSlides((prev) => {
@@ -166,7 +169,9 @@ export default function TVPlayer({ pin, initialSlides }: { pin: string; initialS
             } catch {
                 // silently ignore — keep playing what we have
             }
-        }, 60_000)
+        }
+        poll()
+        const interval = setInterval(poll, 60_000)
         return () => clearInterval(interval)
     }, [pin])
 
