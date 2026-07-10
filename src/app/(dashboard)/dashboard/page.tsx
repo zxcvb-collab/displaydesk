@@ -148,10 +148,19 @@ export default async function DashboardPage() {
                                         <div className="flex items-center gap-1.5 text-xs">
                                             <span
                                                 className={`w-1.5 h-1.5 rounded-full ${
-                                                    status === 'online' ? 'bg-green-500' : status === 'offline' ? 'bg-amber-500' : 'bg-zinc-300'
+                                                    status === 'online' && screen.is_open
+                                                        ? 'bg-green-500'
+                                                        : status === 'online'
+                                                        ? 'bg-zinc-400'
+                                                        : status === 'offline'
+                                                        ? 'bg-amber-500'
+                                                        : 'bg-zinc-300'
                                                 }`}
                                             />
-                                            {status === 'online' && (
+                                            {status === 'online' && !screen.is_open && (
+                                                <span className="text-zinc-500">Closed · Outside business hours</span>
+                                            )}
+                                            {status === 'online' && screen.is_open && (
                                                 <span className="text-zinc-500">
                                                     Online{currentSlide ? ` · Playing ${screen.current_slide_index + 1}/${slideCount} (${currentSlide.type === 'youtube' ? 'YouTube' : 'Uploaded'})` : ''}
                                                 </span>

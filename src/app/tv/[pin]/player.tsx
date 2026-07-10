@@ -111,6 +111,8 @@ export default function TVPlayer({
     const effectiveSchedule = resolveEffectiveSchedule(scheduleMode, schedule, orgDefaultSchedule)
     const [isOpen, setIsOpen] = useState(() => isOpenNow(effectiveSchedule))
     const wasOpen = useRef(isOpen)
+    const isOpenRef = useRef(isOpen)
+    useEffect(() => { isOpenRef.current = isOpen }, [isOpen])
 
     // Extract valid video IDs and uploaded videos
     const youtubeIds = getVideoIds(slides)
@@ -199,13 +201,14 @@ export default function TVPlayer({
     }, [currentType])
 
     // Poll for slide updates every 60 s; also reports a heartbeat + current
-    // slide index so the admin dashboard can show live status. Fires once
-    // immediately on mount too, so "Online" shows up right away instead of
-    // waiting a full interval.
+    // slide index + open/closed state so the admin dashboard can show live
+    // status (including "closed for business hours", not just online/
+    // offline). Fires once immediately on mount too, so status shows up
+    // right away instead of waiting a full interval.
     useEffect(() => {
         const poll = async () => {
             try {
-                const res = await fetch(`/api/tv/${pin}?slide=${currentIndex.current}`)
+                const res = await fetch(`/api/tv/${pin}?slide=${currentIndex.current}&open=${isOpenRef.current}`)
                 if (!res.ok) return
                 const { slides: fresh, scheduleMode: freshMode, schedule: freshSchedule, orgDefaultSchedule: freshOrgSchedule } = await res.json()
                 setSlides((prev) => {
