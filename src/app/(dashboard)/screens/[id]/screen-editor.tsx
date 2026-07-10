@@ -7,6 +7,8 @@ import { createClient } from '@/lib/supabase/client'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Badge } from '@/components/ui/badge'
+import WeekScheduleEditor from '@/components/week-schedule-editor'
+import { emptySchedule, type ScheduleMode, type WeekSchedule } from '@/lib/schedule'
 
 type Slide = {
     url: string
@@ -18,6 +20,8 @@ type Screen = {
     name: string
     pin: string
     slides: Slide[]
+    schedule_mode?: ScheduleMode
+    schedule?: WeekSchedule | null
 }
 
 type ActivityEntry = {
@@ -42,7 +46,7 @@ function getYouTubeId(url: string): string | null {
     return null
 }
 
-async function patchScreen(id: string, updates: { name?: string; slides?: Slide[] }) {
+async function patchScreen(id: string, updates: { name?: string; slides?: Slide[]; schedule_mode?: ScheduleMode; schedule?: WeekSchedule | null }) {
     const res = await fetch(`/api/screens/${id}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
@@ -58,7 +62,15 @@ function extractStoragePath(publicUrl: string): string | null {
     return decodeURIComponent(publicUrl.slice(idx + marker.length))
 }
 
-export default function ScreenEditor({ screen, orgId }: { screen: Screen; orgId: string }) {
+export default function ScreenEditor({
+    screen,
+    orgId,
+    orgDefaultSchedule,
+}: {
+    screen: Screen
+    orgId: string
+    orgDefaultSchedule: WeekSchedule | null
+}) {
     const router = useRouter()
     const supabase = createClient()
     const [name, setName] = useState(screen.name)
@@ -68,6 +80,10 @@ export default function ScreenEditor({ screen, orgId }: { screen: Screen; orgId:
     const [uploading, setUploading] = useState(false)
     const [saving, setSaving] = useState(false)
     const [deleting, setDeleting] = useState(false)
+    const [scheduleMode, setScheduleMode] = useState<ScheduleMode>(screen.schedule_mode ?? 'inherit')
+    const [schedule, setSchedule] = useState<WeekSchedule>(screen.schedule ?? emptySchedule())
+    const [scheduleSaving, setScheduleSaving] = useState(false)
+    const [scheduleSaved, setScheduleSaved] = useState(false)
     const nameRef = useRef(screen.name)
     const fileInputRef = useRef<HTMLInputElement>(null)
     const [activity, setActivity] = useState<ActivityEntry[]>([])
@@ -116,6 +132,20 @@ export default function ScreenEditor({ screen, orgId }: { screen: Screen; orgId:
             await patchScreen(screen.id, { slides: next })
         } finally {
             setSaving(false)
+        }
+    }
+
+    async function saveSchedule() {
+        setScheduleSaving(true)
+        setScheduleSaved(false)
+        try {
+            await patchScreen(screen.id, {
+                schedule_mode: scheduleMode,
+                schedule: scheduleMode === 'custom' ? schedule : null,
+            })
+            setScheduleSaved(true)
+        } finally {
+            setScheduleSaving(false)
         }
     }
 
@@ -362,6 +392,60 @@ export default function ScreenEditor({ screen, orgId }: { screen: Screen; orgId:
                 </div>
 
                 {urlError && <p className="text-sm text-red-600">{urlError}</p>}
+            </div>
+
+            {/* Schedule */}
+            <div className="mt-8">
+                <h2 className="font-semibold text-zinc-900 mb-1">Schedule</h2>
+                <p className="text-sm text-zinc-500 mb-4">
+                    Outside open hours, this TV shows a black screen instead of playing content.
+                </p>
+
+                <div className="bg-white border border-zinc-200 rounded-2xl p-4 mb-4 space-y-3">
+                    <label className="flex items-center gap-2 text-sm">
+                        <input
+                            type="radio"
+                            name="schedule_mode"
+                            checked={scheduleMode === 'always_on'}
+                            onChange={() => setScheduleMode('always_on')}
+                        />
+                        Always on
+                    </label>
+                    <label className="flex items-center gap-2 text-sm">
+                        <input
+                            type="radio"
+                            name="schedule_mode"
+                            checked={scheduleMode === 'inherit'}
+                            onChange={() => setScheduleMode('inherit')}
+                        />
+                        Use business hours
+                        {!orgDefaultSchedule && (
+                            <span className="text-xs text-zinc-400">(not set — see dashboard)</span>
+                        )}
+                    </label>
+                    <label className="flex items-center gap-2 text-sm">
+                        <input
+                            type="radio"
+                            name="schedule_mode"
+                            checked={scheduleMode === 'custom'}
+                            onChange={() => setScheduleMode('custom')}
+                        />
+                        Custom hours for this screen
+                    </label>
+                </div>
+
+                {scheduleMode === 'custom' && (
+                    <div className="bg-white border border-zinc-200 rounded-2xl p-4 mb-4">
+                        <WeekScheduleEditor value={schedule} onChange={setSchedule} />
+                    </div>
+                )}
+
+                <div className="flex items-center gap-3">
+                    <Button onClick={saveSchedule} disabled={scheduleSaving} size="sm">
+                        {scheduleSaving ? 'Saving…' : 'Save schedule'}
+                    </Button>
+                    {scheduleSaved && <span className="text-xs text-zinc-400">Saved</span>}
+                </div>
             </div>
 
             {/* Activity log */}

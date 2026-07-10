@@ -19,5 +19,8 @@ export async function GET(request: Request, { params }: { params: Promise<{ pin:
 
     return NextResponse.json({
         slides: Array.isArray(screen.slides) ? screen.slides : [],
+        scheduleMode: screen.schedule_mode,
+        schedule: screen.schedule,
+        orgDefaultSchedule: screen.org_default_schedule,
     })
 }

@@ -17,6 +17,9 @@ export default async function TVPage({ params }: { params: Promise<{ pin: string
         <TVPlayer
             pin={pin}
             initialSlides={Array.isArray(screen.slides) ? screen.slides : []}
+            initialScheduleMode={screen.schedule_mode}
+            initialSchedule={screen.schedule}
+            initialOrgDefaultSchedule={screen.org_default_schedule}
         />
     )
 }

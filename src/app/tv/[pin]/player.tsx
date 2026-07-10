@@ -1,6 +1,7 @@
 'use client'
 
 import { useEffect, useRef, useState, useCallback } from 'react'
+import { resolveEffectiveSchedule, isOpenNow, type ScheduleMode, type WeekSchedule } from '@/lib/schedule'
 
 declare global {
     interface Window {
@@ -78,7 +79,19 @@ async function requestFullscreenSafe(el: HTMLElement) {
     }
 }
 
-export default function TVPlayer({ pin, initialSlides }: { pin: string; initialSlides: Slide[] }) {
+export default function TVPlayer({
+    pin,
+    initialSlides,
+    initialScheduleMode,
+    initialSchedule,
+    initialOrgDefaultSchedule,
+}: {
+    pin: string
+    initialSlides: Slide[]
+    initialScheduleMode?: ScheduleMode
+    initialSchedule?: WeekSchedule | null
+    initialOrgDefaultSchedule?: WeekSchedule | null
+}) {
     const containerRef = useRef<HTMLDivElement>(null)
     const playerRef = useRef<HTMLDivElement>(null)
     const videoRef = useRef<HTMLVideoElement>(null)
@@ -91,6 +104,13 @@ export default function TVPlayer({ pin, initialSlides }: { pin: string; initialS
     const [isFullscreen, setIsFullscreen] = useState(false)
     const currentIndex = useRef(0)
     const hasInitialized = useRef(false)
+
+    const [scheduleMode, setScheduleMode] = useState<ScheduleMode>(initialScheduleMode ?? 'inherit')
+    const [schedule, setSchedule] = useState<WeekSchedule | null>(initialSchedule ?? null)
+    const [orgDefaultSchedule, setOrgDefaultSchedule] = useState<WeekSchedule | null>(initialOrgDefaultSchedule ?? null)
+    const effectiveSchedule = resolveEffectiveSchedule(scheduleMode, schedule, orgDefaultSchedule)
+    const [isOpen, setIsOpen] = useState(() => isOpenNow(effectiveSchedule))
+    const wasOpen = useRef(isOpen)
 
     // Extract valid video IDs and uploaded videos
     const youtubeIds = getVideoIds(slides)
@@ -130,6 +150,32 @@ export default function TVPlayer({ pin, initialSlides }: { pin: string; initialS
         })
     }, [playSlideIndex])
 
+    // Re-evaluate open/closed state locally every 15s using the TV's own
+    // clock — no network call needed, just catches the exact minute the
+    // schedule crosses an open/close boundary between content polls.
+    useEffect(() => {
+        const check = () => setIsOpen(isOpenNow(effectiveSchedule))
+        check()
+        const interval = setInterval(check, 15_000)
+        return () => clearInterval(interval)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [scheduleMode, schedule, orgDefaultSchedule])
+
+    // Pause on close, resume on open — avoids playing audio/video for a
+    // closed shop and avoids re-triggering fullscreen/autoplay issues
+    useEffect(() => {
+        if (isOpen === wasOpen.current) return
+        wasOpen.current = isOpen
+
+        if (!isOpen) {
+            videoRef.current?.pause()
+            ytPlayer.current?.pauseVideo?.()
+        } else if (started) {
+            videoRef.current?.play().catch(() => {})
+            ytPlayer.current?.playVideo?.()
+        }
+    }, [isOpen, started])
+
     // Track fullscreen state across browser-specific events
     useEffect(() => {
         const handleChange = () => setIsFullscreen(isFullscreenActive())
@@ -161,11 +207,14 @@ export default function TVPlayer({ pin, initialSlides }: { pin: string; initialS
             try {
                 const res = await fetch(`/api/tv/${pin}?slide=${currentIndex.current}`)
                 if (!res.ok) return
-                const { slides: fresh } = await res.json()
+                const { slides: fresh, scheduleMode: freshMode, schedule: freshSchedule, orgDefaultSchedule: freshOrgSchedule } = await res.json()
                 setSlides((prev) => {
                     if (JSON.stringify(prev) === JSON.stringify(fresh)) return prev
                     return fresh
                 })
+                if (freshMode) setScheduleMode(freshMode)
+                setSchedule(freshSchedule ?? null)
+                setOrgDefaultSchedule(freshOrgSchedule ?? null)
             } catch {
                 // silently ignore — keep playing what we have
             }
@@ -232,6 +281,11 @@ export default function TVPlayer({ pin, initialSlides }: { pin: string; initialS
             playSlideIndex(0, slides)
         }
     }, [slides, ready, playSlideIndex])
+
+    // --- Closed (outside business hours) ---
+    if (!isOpen) {
+        return <div className="fixed inset-0 bg-black" />
+    }
 
     // --- Empty state ---
     if (allSlides.length === 0) {

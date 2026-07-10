@@ -3,6 +3,7 @@ import Link from 'next/link'
 import { createClient } from '@/lib/supabase/server'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
+import OrgScheduleSettings from './org-schedule-settings'
 
 export const dynamic = 'force-dynamic'
 
@@ -169,6 +170,8 @@ export default async function DashboardPage() {
                     })}
                 </div>
             )}
+
+            <OrgScheduleSettings initialSchedule={org.default_schedule ?? null} />
 
             {/* Billing */}
             <div className="mt-10">

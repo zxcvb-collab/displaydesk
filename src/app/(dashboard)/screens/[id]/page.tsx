@@ -13,7 +13,7 @@ export default async function ScreenPage({ params }: { params: Promise<{ id: str
 
     const { data: org } = await supabase
         .from('organisations')
-        .select('id')
+        .select('id, default_schedule')
         .eq('owner_id', user.id)
         .single()
 
@@ -21,7 +21,7 @@ export default async function ScreenPage({ params }: { params: Promise<{ id: str
 
     const { data: screen } = await supabase
         .from('screens')
-        .select('id, name, pin, slides')
+        .select('id, name, pin, slides, schedule_mode, schedule')
         .eq('id', id)
         .eq('org_id', org.id)
         .single()
@@ -43,6 +43,7 @@ export default async function ScreenPage({ params }: { params: Promise<{ id: str
     return (
         <ScreenEditor
             orgId={org.id}
+            orgDefaultSchedule={org.default_schedule ?? null}
             screen={{
                 ...screen,
                 slides,

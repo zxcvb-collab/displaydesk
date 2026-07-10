@@ -22,6 +22,8 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
     const updates: Record<string, unknown> = {}
     if (body.name !== undefined) updates.name = body.name
     if (body.slides !== undefined) updates.slides = body.slides
+    if (body.schedule_mode !== undefined) updates.schedule_mode = body.schedule_mode
+    if (body.schedule !== undefined) updates.schedule = body.schedule
 
     const { data, error } = await supabase
         .from('screens')
