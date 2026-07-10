@@ -79,12 +79,23 @@ narrow, function-gated exception for anonymous TV playback (see §5).
   since menu text/prices at the edges must never be cut off)
 - Falls back to the next slide on a playback error instead of hanging
 
-### 4.4 Plan Limits
+### 4.4 Live Screen Status (Dashboard)
+- TVs report a heartbeat + current slide index on every 60s content poll,
+  via a PIN-scoped `SECURITY DEFINER` function (`report_screen_heartbeat`)
+  — same anonymous-access model as playback itself
+- Dashboard shows a status dot per screen: **Online** (polled within the
+  last 2 minutes) with what's currently playing, **Offline** with a
+  last-seen time, or **Not connected yet** for screens with no heartbeat
+  ever recorded
+- TV player fires an immediate poll on mount (not just after the first 60s
+  interval), so status reflects reality quickly after a TV taps "start"
+
+### 4.5 Plan Limits
 - Screens per org capped by `organisations.plan` (`free` = 1, `starter` = 2,
   `pro` = 5, `business` = 15, enforced at screen-creation time in the API
   route)
 
-### 4.5 Billing (Implemented, tested end-to-end in production)
+### 4.6 Billing (Implemented, tested end-to-end in production)
 - Stripe Checkout (hosted) for Starter/Pro/Business subscriptions — a
   Stripe customer is created on first upgrade and linked via
   `stripe_customer_id`
@@ -129,7 +140,7 @@ narrow, function-gated exception for anonymous TV playback (see §5).
   / Pro $24 (5 screens, +$4/ea) / Business $59 (15 screens, +$3/ea) —
   priced at the low end of market to prioritize customer acquisition
 - **Stripe Checkout, webhook, and Customer Portal are implemented and
-  live in production** — see §4.5 for detail
+  live in production** — see §4.6 for detail
 - Free-tier lifecycle: warning email (~month 3) → soft-disable (month 3,
   data retained) → warning email (~month 9) → hard delete (month 9) —
   **not yet built**. A full 7-email sequence covering this lifecycle
@@ -152,7 +163,9 @@ narrow, function-gated exception for anonymous TV playback (see §5).
 - Free-tier lifecycle automation (warnings, disable, hard delete) not yet
   built — see §6
 - Per-screen add-on billing beyond a tier's included count not yet built
-  — see §4.5
+  — see §4.6
+- No historical uptime/status log — only current status is shown, not a
+  history of when a screen went offline/online over time
 - Leaked-password protection unavailable (gated behind Supabase's paid
   tier, not fixable in application code)
 - Storage files uploaded before the deletion-cleanup fix landed may still
