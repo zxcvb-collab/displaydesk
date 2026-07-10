@@ -40,10 +40,13 @@ narrow, function-gated exception for anonymous TV playback (see §5).
 
 - **`organisations`** — one per signed-up user (auto-created via a
   `handle_new_user` DB trigger on `auth.users` insert). Holds `owner_id`,
-  `name`, `plan`, `stripe_customer_id`, `stripe_subscription_id`.
+  `name`, `plan`, `stripe_customer_id`, `stripe_subscription_id`,
+  `default_schedule` (org-wide business-hours default, see §4.5).
 - **`screens`** — belongs to an org. Holds `pin` (unique, TV-facing
   identifier), `name`, `slides` (JSON array of `{ url, type }`, where
-  `type` is `'youtube' | 'video'`).
+  `type` is `'youtube' | 'video'`), `last_seen_at` + `current_slide_index`
+  (live status, see §4.4), `schedule_mode` + `schedule` (business-hours
+  override, see §4.5).
 - **`screen_activity`** — append-only log of video upload/delete events per
   screen, with actor email and timestamp.
 
@@ -79,12 +82,49 @@ narrow, function-gated exception for anonymous TV playback (see §5).
   since menu text/prices at the edges must never be cut off)
 - Falls back to the next slide on a playback error instead of hanging
 
-### 4.4 Plan Limits
+### 4.4 Live Screen Status (Dashboard)
+- TVs report a heartbeat + current slide index on every 60s content poll,
+  via a PIN-scoped `SECURITY DEFINER` function (`report_screen_heartbeat`)
+  — same anonymous-access model as playback itself
+- Dashboard shows a status dot per screen: **Online** (polled within the
+  last 2 minutes) with what's currently playing, **Offline** with a
+  last-seen time, or **Not connected yet** for screens with no heartbeat
+  ever recorded
+- TV player fires an immediate poll on mount (not just after the first 60s
+  interval), so status reflects reality quickly after a TV taps "start"
+
+### 4.5 Business-Hours Scheduling
+- Screens can be restricted to business hours instead of playing 24/7.
+  **Important caveat: we don't control TV power directly** (no smart-plug
+  or CEC integration) — "closed" means the TV shows a black screen and
+  stops playing, not that the physical display powers off
+- Three scopes, admin's choice:
+  - **Always on** — no restriction (default, matches pre-scheduling
+    behavior)
+  - **Use business hours** — inherits `organisations.default_schedule`,
+    a single org-wide weekly schedule set on the dashboard
+  - **Custom hours** — per-screen override (`screens.schedule`), useful
+    when e.g. a patio screen has different hours than an indoor counter
+    screen
+- Schedule shape: one entry per day of week, each either `null` (closed
+  all day) or `{ open: "HH:MM", close: "HH:MM" }` in 24h local time;
+  overnight windows (close time before open time) wrap past midnight
+- Evaluated **entirely client-side on the TV**, using the TV's own system
+  clock — no server cron job. The TV re-checks locally every 15s (no
+  network call) and also picks up schedule changes on its normal 60s
+  content poll
+- On close: pauses any playing video/YouTube player and renders a plain
+  black screen. On reopen: resumes automatically from the current slide
+- Assumes the TV's system clock/timezone is correctly set to local time
+  (typical for a TV physically located at the business) — there is no
+  explicit timezone field in the schema
+
+### 4.6 Plan Limits
 - Screens per org capped by `organisations.plan` (`free` = 1, `starter` = 2,
   `pro` = 5, `business` = 15, enforced at screen-creation time in the API
   route)
 
-### 4.5 Billing (Implemented, tested end-to-end in production)
+### 4.7 Billing (Implemented, tested end-to-end in production)
 - Stripe Checkout (hosted) for Starter/Pro/Business subscriptions — a
   Stripe customer is created on first upgrade and linked via
   `stripe_customer_id`
@@ -129,7 +169,7 @@ narrow, function-gated exception for anonymous TV playback (see §5).
   / Pro $24 (5 screens, +$4/ea) / Business $59 (15 screens, +$3/ea) —
   priced at the low end of market to prioritize customer acquisition
 - **Stripe Checkout, webhook, and Customer Portal are implemented and
-  live in production** — see §4.5 for detail
+  live in production** — see §4.7 for detail
 - Free-tier lifecycle: warning email (~month 3) → soft-disable (month 3,
   data retained) → warning email (~month 9) → hard delete (month 9) —
   **not yet built**. A full 7-email sequence covering this lifecycle
@@ -152,7 +192,7 @@ narrow, function-gated exception for anonymous TV playback (see §5).
 - Free-tier lifecycle automation (warnings, disable, hard delete) not yet
   built — see §6
 - Per-screen add-on billing beyond a tier's included count not yet built
-  — see §4.5
+  — see §4.7
 - Leaked-password protection unavailable (gated behind Supabase's paid
   tier, not fixable in application code)
 - Storage files uploaded before the deletion-cleanup fix landed may still
