@@ -13,8 +13,11 @@ ALTER TABLE public.screens
 
 -- Extend the public PIN-lookup RPC to also expose schedule info, so the
 -- TV player can evaluate open/closed state without any additional
--- authenticated request.
-CREATE OR REPLACE FUNCTION public.get_screen_by_pin(p_pin text)
+-- authenticated request. Must DROP first since the return shape (column
+-- list) is changing — CREATE OR REPLACE can't alter that.
+DROP FUNCTION IF EXISTS public.get_screen_by_pin(text);
+
+CREATE FUNCTION public.get_screen_by_pin(p_pin text)
 RETURNS TABLE (
     id uuid,
     name text,
