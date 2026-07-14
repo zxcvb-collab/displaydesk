@@ -41,6 +41,25 @@ function getUploadedVideos(slides: Slide[]): string[] {
     return slides.filter(s => s.type === 'video').map(s => s.url)
 }
 
+// Offline resilience for uploaded videos: opportunistically cache them in
+// the browser's Cache Storage as they're seen, then fall back to the
+// cached copy if a network fetch fails (e.g. wifi drops mid-loop). This
+// only covers uploaded videos — YouTube slides stream live from YouTube's
+// own servers and can never work offline, no way around that. Also only
+// helps while this page stays loaded; a full reload during an outage
+// would still fail, since the page itself is server-rendered — that's a
+// bigger, separate effort (a real offline-capable PWA) for v2.
+const MEDIA_CACHE_NAME = 'displaydesk-media-v1'
+
+async function getMediaCache(): Promise<Cache | null> {
+    if (typeof caches === 'undefined') return null
+    try {
+        return await caches.open(MEDIA_CACHE_NAME)
+    } catch {
+        return null
+    }
+}
+
 type FullscreenElement = HTMLElement & {
     webkitRequestFullscreen?: () => Promise<void> | void
     mozRequestFullScreen?: () => Promise<void> | void
@@ -104,6 +123,11 @@ export default function TVPlayer({
     const [isFullscreen, setIsFullscreen] = useState(false)
     const currentIndex = useRef(0)
     const hasInitialized = useRef(false)
+    const slidesRef = useRef(slides)
+    useEffect(() => { slidesRef.current = slides }, [slides])
+    const triedCacheFallback = useRef(false)
+    const lastObjectUrl = useRef<string | null>(null)
+    const handleVideoErrorRef = useRef<() => void>(() => {})
 
     const [scheduleMode, setScheduleMode] = useState<ScheduleMode>(initialScheduleMode ?? 'inherit')
     const [schedule, setSchedule] = useState<WeekSchedule | null>(initialSchedule ?? null)
@@ -133,13 +157,10 @@ export default function TVPlayer({
             }
         } else if (slide.type === 'video') {
             if (videoRef.current) {
+                triedCacheFallback.current = false
                 videoRef.current.src = slide.url
                 videoRef.current.play().catch(() => {
-                    // On error, advance to next video
-                    setSlides((s) => {
-                        playSlideIndex((currentIndex.current + 1) % s.length, s)
-                        return s
-                    })
+                    handleVideoErrorRef.current()
                 })
             }
         }
@@ -151,6 +172,60 @@ export default function TVPlayer({
             return current
         })
     }, [playSlideIndex])
+
+    // On a load/playback error, try the cached copy (if we have one) before
+    // giving up and skipping to the next slide — this is what actually
+    // survives a brief network blip mid-loop.
+    const handleVideoError = useCallback(async () => {
+        const slide = slidesRef.current[currentIndex.current]
+
+        if (triedCacheFallback.current || !slide || slide.type !== 'video' || !videoRef.current) {
+            advanceSlide()
+            return
+        }
+        triedCacheFallback.current = true
+
+        try {
+            const cache = await getMediaCache()
+            const match = await cache?.match(slide.url)
+            if (!match) throw new Error('not cached')
+
+            const blob = await match.blob()
+            if (lastObjectUrl.current) URL.revokeObjectURL(lastObjectUrl.current)
+            const objectUrl = URL.createObjectURL(blob)
+            lastObjectUrl.current = objectUrl
+
+            if (!videoRef.current) return
+            videoRef.current.src = objectUrl
+            await videoRef.current.play()
+        } catch {
+            advanceSlide()
+        }
+    }, [advanceSlide])
+
+    useEffect(() => { handleVideoErrorRef.current = handleVideoError }, [handleVideoError])
+
+    // Opportunistically cache uploaded videos as they're seen, so a later
+    // network blip has something to fall back to. Runs in the background,
+    // never blocks playback.
+    useEffect(() => {
+        let cancelled = false
+        ;(async () => {
+            const cache = await getMediaCache()
+            if (!cache) return
+            for (const url of getUploadedVideos(slides)) {
+                if (cancelled) return
+                if (await cache.match(url)) continue
+                try {
+                    const res = await fetch(url)
+                    if (res.ok) await cache.put(url, res.clone())
+                } catch {
+                    // offline or failed — will retry next time slides change
+                }
+            }
+        })()
+        return () => { cancelled = true }
+    }, [slides])
 
     // Re-evaluate open/closed state locally every 15s using the TV's own
     // clock — no network call needed, just catches the exact minute the
@@ -316,7 +391,7 @@ export default function TVPlayer({
                 className={`fixed inset-0 w-full h-full object-contain ${currentType === 'youtube' ? 'hidden' : ''}`}
                 muted
                 onEnded={advanceSlide}
-                onError={advanceSlide}
+                onError={handleVideoError}
             />
 
             {/* Tap-to-start overlay — fullscreen can only be requested from a real user gesture */}
