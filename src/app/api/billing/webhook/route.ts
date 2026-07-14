@@ -33,9 +33,17 @@ export async function POST(request: Request) {
             const plan = priceId ? PRICE_ID_TO_PLAN[priceId] : undefined
             if (!plan) break
 
+            // Upgrading fully restores access and clears the free-tier
+            // lifecycle state — no partial credit for time already elapsed
             await supabase
                 .from('organisations')
-                .update({ plan, stripe_subscription_id: subscriptionId })
+                .update({
+                    plan,
+                    stripe_subscription_id: subscriptionId,
+                    status: 'active',
+                    trial_warning_sent_at: null,
+                    deletion_warning_sent_at: null,
+                })
                 .eq('id', orgId)
             break
         }
@@ -48,16 +56,26 @@ export async function POST(request: Request) {
 
             await supabase
                 .from('organisations')
-                .update({ plan })
+                .update({ plan, status: 'active', trial_warning_sent_at: null, deletion_warning_sent_at: null })
                 .eq('stripe_customer_id', subscription.customer as string)
             break
         }
 
         case 'customer.subscription.deleted': {
             const subscription = event.data.object as Stripe.Subscription
+            // Reverting to free starts a fresh trial clock rather than
+            // treating them as already 3-9 months into a trial they never
+            // actually used as a free user
             await supabase
                 .from('organisations')
-                .update({ plan: 'free', stripe_subscription_id: null })
+                .update({
+                    plan: 'free',
+                    stripe_subscription_id: null,
+                    status: 'active',
+                    trial_started_at: new Date().toISOString(),
+                    trial_warning_sent_at: null,
+                    deletion_warning_sent_at: null,
+                })
                 .eq('stripe_customer_id', subscription.customer as string)
             break
         }

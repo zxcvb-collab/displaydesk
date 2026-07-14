@@ -9,11 +9,12 @@ export async function POST(request: Request) {
 
     const { data: org } = await supabase
         .from('organisations')
-        .select('id, plan')
+        .select('id, plan, status')
         .eq('owner_id', user.id)
         .single()
 
     if (!org) return NextResponse.json({ error: 'No organisation found' }, { status: 404 })
+    if (org.status === 'disabled') return NextResponse.redirect(new URL('/dashboard', origin), 302)
 
     // Check plan limit
     const planLimit = org.plan === 'free' ? 1 : org.plan === 'starter' ? 2 : org.plan === 'pro' ? 5 : 15
