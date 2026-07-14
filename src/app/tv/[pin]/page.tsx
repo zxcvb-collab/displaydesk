@@ -20,6 +20,7 @@ export default async function TVPage({ params }: { params: Promise<{ pin: string
             initialScheduleMode={screen.schedule_mode}
             initialSchedule={screen.schedule}
             initialOrgDefaultSchedule={screen.org_default_schedule}
+            initialOrgStatus={screen.org_status}
         />
     )
 }

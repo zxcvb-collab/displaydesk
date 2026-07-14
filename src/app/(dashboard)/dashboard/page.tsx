@@ -70,6 +70,35 @@ export default async function DashboardPage() {
         { id: 'business', name: 'Business', price: '$59/mo', screens: 15 },
     ] as const
 
+    // Free trial expired without upgrading — block screen management,
+    // but still allow upgrading to instantly restore full access
+    if (org.status === 'disabled') {
+        return (
+            <div>
+                <div className="text-center py-16 border-2 border-dashed border-amber-200 rounded-2xl bg-amber-50 mb-10">
+                    <p className="font-semibold text-zinc-900 mb-1">Your free trial has ended</p>
+                    <p className="text-sm text-zinc-600">
+                        Your screens are paused, but all your videos and settings are safe. Upgrade below to resume playback instantly.
+                    </p>
+                </div>
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                    {PLANS.map((plan) => (
+                        <div key={plan.id} className="bg-white border border-zinc-200 rounded-2xl p-4">
+                            <p className="font-semibold text-zinc-900">{plan.name}</p>
+                            <p className="text-sm text-zinc-500 mb-1">{plan.price}</p>
+                            <p className="text-xs text-zinc-400 mb-3">{plan.screens} screens included</p>
+                            <form action={`/api/billing/checkout?plan=${plan.id}`} method="POST">
+                                <Button type="submit" size="sm" className="w-full">
+                                    Upgrade
+                                </Button>
+                            </form>
+                        </div>
+                    ))}
+                </div>
+            </div>
+        )
+    }
+
     return (
         <div>
             {/* Header */}

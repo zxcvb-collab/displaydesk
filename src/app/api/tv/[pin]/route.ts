@@ -25,5 +25,6 @@ export async function GET(request: Request, { params }: { params: Promise<{ pin:
         scheduleMode: screen.schedule_mode,
         schedule: screen.schedule,
         orgDefaultSchedule: screen.org_default_schedule,
+        orgStatus: screen.org_status,
     })
 }

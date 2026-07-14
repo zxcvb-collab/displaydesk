@@ -13,11 +13,12 @@ export default async function ScreenPage({ params }: { params: Promise<{ id: str
 
     const { data: org } = await supabase
         .from('organisations')
-        .select('id, default_schedule')
+        .select('id, default_schedule, status')
         .eq('owner_id', user.id)
         .single()
 
     if (!org) redirect('/login')
+    if (org.status === 'disabled') redirect('/dashboard')
 
     const { data: screen } = await supabase
         .from('screens')

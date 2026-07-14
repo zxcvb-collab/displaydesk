@@ -85,12 +85,14 @@ export default function TVPlayer({
     initialScheduleMode,
     initialSchedule,
     initialOrgDefaultSchedule,
+    initialOrgStatus,
 }: {
     pin: string
     initialSlides: Slide[]
     initialScheduleMode?: ScheduleMode
     initialSchedule?: WeekSchedule | null
     initialOrgDefaultSchedule?: WeekSchedule | null
+    initialOrgStatus?: string
 }) {
     const containerRef = useRef<HTMLDivElement>(null)
     const playerRef = useRef<HTMLDivElement>(null)
@@ -113,6 +115,7 @@ export default function TVPlayer({
     const wasOpen = useRef(isOpen)
     const isOpenRef = useRef(isOpen)
     useEffect(() => { isOpenRef.current = isOpen }, [isOpen])
+    const [orgStatus, setOrgStatus] = useState(initialOrgStatus ?? 'active')
 
     // Extract valid video IDs and uploaded videos
     const youtubeIds = getVideoIds(slides)
@@ -178,6 +181,22 @@ export default function TVPlayer({
         }
     }, [isOpen, started])
 
+    // Pause playback if the org gets disabled mid-session (non-payment
+    // after the free trial), matches the pause-on-close behavior above
+    const wasDisabled = useRef(orgStatus === 'disabled')
+    useEffect(() => {
+        const disabled = orgStatus === 'disabled'
+        if (disabled === wasDisabled.current) return
+        wasDisabled.current = disabled
+        if (disabled) {
+            videoRef.current?.pause()
+            ytPlayer.current?.pauseVideo?.()
+        } else if (started && isOpen) {
+            videoRef.current?.play().catch(() => {})
+            ytPlayer.current?.playVideo?.()
+        }
+    }, [orgStatus, started, isOpen])
+
     // Track fullscreen state across browser-specific events
     useEffect(() => {
         const handleChange = () => setIsFullscreen(isFullscreenActive())
@@ -210,7 +229,7 @@ export default function TVPlayer({
             try {
                 const res = await fetch(`/api/tv/${pin}?slide=${currentIndex.current}&open=${isOpenRef.current}`)
                 if (!res.ok) return
-                const { slides: fresh, scheduleMode: freshMode, schedule: freshSchedule, orgDefaultSchedule: freshOrgSchedule } = await res.json()
+                const { slides: fresh, scheduleMode: freshMode, schedule: freshSchedule, orgDefaultSchedule: freshOrgSchedule, orgStatus: freshOrgStatus } = await res.json()
                 setSlides((prev) => {
                     if (JSON.stringify(prev) === JSON.stringify(fresh)) return prev
                     return fresh
@@ -218,6 +237,7 @@ export default function TVPlayer({
                 if (freshMode) setScheduleMode(freshMode)
                 setSchedule(freshSchedule ?? null)
                 setOrgDefaultSchedule(freshOrgSchedule ?? null)
+                if (freshOrgStatus) setOrgStatus(freshOrgStatus)
             } catch {
                 // silently ignore — keep playing what we have
             }
@@ -284,6 +304,18 @@ export default function TVPlayer({
             playSlideIndex(0, slides)
         }
     }, [slides, ready, playSlideIndex])
+
+    // --- Disabled (free trial expired, not upgraded) — takes priority over
+    // the schedule/empty-state checks below, since there's no content to
+    // show regardless of hours or slide count until the account upgrades.
+    if (orgStatus === 'disabled') {
+        return (
+            <div className="fixed inset-0 bg-black flex flex-col items-center justify-center text-white">
+                <p className="text-lg font-medium opacity-60 mb-1">Upgrade required</p>
+                <p className="text-sm opacity-30">This screen&rsquo;s free trial has ended — upgrade in the dashboard to resume playback</p>
+            </div>
+        )
+    }
 
     // --- Closed (outside business hours) ---
     if (!isOpen) {

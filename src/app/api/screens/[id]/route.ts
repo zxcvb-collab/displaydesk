@@ -1,14 +1,18 @@
 import { NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 
+// Returns null (treated as unauthorized) for disabled orgs too — the
+// dashboard blocks access at the UI level, but mutating routes need their
+// own check since RLS is scoped to ownership, not lifecycle status.
 async function getOrgForUser(supabase: Awaited<ReturnType<typeof createClient>>) {
     const { data: { user } } = await supabase.auth.getUser()
     if (!user) return null
     const { data: org } = await supabase
         .from('organisations')
-        .select('id')
+        .select('id, status')
         .eq('owner_id', user.id)
         .single()
+    if (!org || org.status === 'disabled') return null
     return org
 }
 
