@@ -28,6 +28,7 @@ function getYouTubeId(url: string): string | null {
 type Slide = {
     url: string
     type: 'youtube' | 'video'
+    offlineThumb?: number
 }
 
 function getVideoIds(slides: Slide[]): string[] {
@@ -140,6 +141,7 @@ export default function TVPlayer({
     const isOpenRef = useRef(isOpen)
     useEffect(() => { isOpenRef.current = isOpen }, [isOpen])
     const [orgStatus, setOrgStatus] = useState(initialOrgStatus ?? 'active')
+    const [isOnline, setIsOnline] = useState(() => typeof navigator === 'undefined' || navigator.onLine)
 
     // Extract valid video IDs and uploaded videos
     const youtubeIds = getVideoIds(slides)
@@ -271,6 +273,32 @@ export default function TVPlayer({
             ytPlayer.current?.playVideo?.()
         }
     }, [orgStatus, started, isOpen])
+
+    // Track connectivity via the browser's native online/offline signal —
+    // this is what actually detects the outage for YouTube slides, since
+    // we can't observe failures inside YouTube's cross-origin iframe
+    // directly. On reconnect, nudge the YouTube player to reload the
+    // current video — a stalled embed doesn't always resume cleanly on
+    // its own once the network returns.
+    useEffect(() => {
+        const goOnline = () => {
+            setIsOnline(true)
+            const slide = slidesRef.current[currentIndex.current]
+            if (slide?.type === 'youtube') {
+                const videoId = getYouTubeId(slide.url)
+                if (videoId && ytPlayer.current?.loadVideoById) {
+                    ytPlayer.current.loadVideoById(videoId)
+                }
+            }
+        }
+        const goOffline = () => setIsOnline(false)
+        window.addEventListener('online', goOnline)
+        window.addEventListener('offline', goOffline)
+        return () => {
+            window.removeEventListener('online', goOnline)
+            window.removeEventListener('offline', goOffline)
+        }
+    }, [])
 
     // Track fullscreen state across browser-specific events
     useEffect(() => {
@@ -415,6 +443,10 @@ export default function TVPlayer({
     }
 
     // --- Player ---
+    const currentSlide = slides[currentIndex.current]
+    const currentYouTubeId = currentType === 'youtube' && currentSlide ? getYouTubeId(currentSlide.url) : null
+    const showOfflineFallback = !isOnline && currentType === 'youtube' && currentYouTubeId
+
     return (
         <div ref={containerRef} className="fixed inset-0 bg-black">
             <div ref={playerRef} className={`w-full h-full ${currentType === 'video' ? 'hidden' : ''}`} />
@@ -425,6 +457,17 @@ export default function TVPlayer({
                 onEnded={advanceSlide}
                 onError={handleVideoError}
             />
+
+            {/* YouTube can't play offline (streams live from YouTube's own
+                servers) — show the admin-selected static thumbnail instead
+                of a frozen/broken embed while connectivity is down */}
+            {showOfflineFallback && (
+                <img
+                    src={`https://img.youtube.com/vi/${currentYouTubeId}/${currentSlide?.offlineThumb ?? 0}.jpg`}
+                    alt=""
+                    className="fixed inset-0 w-full h-full object-contain bg-black"
+                />
+            )}
 
             {/* Tap-to-start overlay — fullscreen can only be requested from a real user gesture */}
             {!started && (

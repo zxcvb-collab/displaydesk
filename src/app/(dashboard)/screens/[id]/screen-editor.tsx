@@ -13,6 +13,7 @@ import { emptySchedule, type ScheduleMode, type WeekSchedule } from '@/lib/sched
 type Slide = {
     url: string
     type: 'youtube' | 'video'
+    offlineThumb?: number
 }
 
 type Screen = {
@@ -218,6 +219,11 @@ export default function ScreenEditor({
         logActivity('delete', slide.url)
     }
 
+    function setOfflineThumb(index: number, thumbIndex: number) {
+        const next = slides.map((s, i) => (i === index ? { ...s, offlineThumb: thumbIndex } : s))
+        updateSlides(next)
+    }
+
     function moveSlide(index: number, direction: -1 | 1) {
         const next = [...slides]
         const target = index + direction
@@ -304,53 +310,82 @@ export default function ScreenEditor({
                     {slides.map((slide, i) => {
                         const videoId = slide.type === 'youtube' ? getYouTubeId(slide.url) : null
                         const isUploaded = slide.type === 'video'
+                        const selectedThumb = slide.offlineThumb ?? 0
                         return (
                             <div
                                 key={i}
-                                className="flex items-center gap-3 bg-white border border-zinc-200 rounded-2xl p-3"
+                                className="bg-white border border-zinc-200 rounded-2xl p-3"
                             >
-                                {videoId ? (
-                                    <img
-                                        src={`https://img.youtube.com/vi/${videoId}/mqdefault.jpg`}
-                                        alt=""
-                                        className="w-24 h-14 object-cover rounded-lg shrink-0 bg-zinc-100"
-                                    />
-                                ) : isUploaded ? (
-                                    <div className="w-24 h-14 bg-gradient-to-br from-blue-400 to-blue-600 rounded-lg shrink-0 flex items-center justify-center">
-                                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2" strokeLinecap="round"><path d="M23 7l-7 5 7 5V7z" /><rect x="1" y="5" width="15" height="14" rx="2" ry="2" /></svg>
+                                <div className="flex items-center gap-3">
+                                    {videoId ? (
+                                        <img
+                                            src={`https://img.youtube.com/vi/${videoId}/mqdefault.jpg`}
+                                            alt=""
+                                            className="w-24 h-14 object-cover rounded-lg shrink-0 bg-zinc-100"
+                                        />
+                                    ) : isUploaded ? (
+                                        <div className="w-24 h-14 bg-gradient-to-br from-blue-400 to-blue-600 rounded-lg shrink-0 flex items-center justify-center">
+                                            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2" strokeLinecap="round"><path d="M23 7l-7 5 7 5V7z" /><rect x="1" y="5" width="15" height="14" rx="2" ry="2" /></svg>
+                                        </div>
+                                    ) : (
+                                        <div className="w-24 h-14 bg-zinc-100 rounded-lg shrink-0" />
+                                    )}
+                                    <div className="flex-1 min-w-0">
+                                        <p className="text-sm text-zinc-600 truncate font-mono">{slide.url}</p>
+                                        <p className="text-xs text-zinc-400 mt-0.5">{slide.type === 'youtube' ? 'YouTube' : 'Uploaded'}</p>
                                     </div>
-                                ) : (
-                                    <div className="w-24 h-14 bg-zinc-100 rounded-lg shrink-0" />
+                                    <div className="flex items-center gap-1 shrink-0">
+                                        <button
+                                            onClick={() => moveSlide(i, -1)}
+                                            disabled={i === 0}
+                                            className="p-1.5 rounded-lg hover:bg-zinc-100 disabled:opacity-30 text-zinc-500"
+                                            title="Move up"
+                                        >
+                                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M18 15l-6-6-6 6" /></svg>
+                                        </button>
+                                        <button
+                                            onClick={() => moveSlide(i, 1)}
+                                            disabled={i === slides.length - 1}
+                                            className="p-1.5 rounded-lg hover:bg-zinc-100 disabled:opacity-30 text-zinc-500"
+                                            title="Move down"
+                                        >
+                                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M6 9l6 6 6-6" /></svg>
+                                        </button>
+                                        <button
+                                            onClick={() => removeSlide(i)}
+                                            className="p-1.5 rounded-lg hover:bg-red-50 text-zinc-400 hover:text-red-500"
+                                            title="Remove"
+                                        >
+                                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M18 6L6 18M6 6l12 12" /></svg>
+                                        </button>
+                                    </div>
+                                </div>
+
+                                {videoId && (
+                                    <div className="mt-3 pt-3 border-t border-zinc-100">
+                                        <p className="text-xs text-zinc-500 mb-2">
+                                            Offline fallback image — shown if the TV loses internet while this video is playing
+                                        </p>
+                                        <div className="flex gap-2">
+                                            {[0, 1, 2, 3].map((thumbIdx) => (
+                                                <button
+                                                    key={thumbIdx}
+                                                    onClick={() => setOfflineThumb(i, thumbIdx)}
+                                                    className={`rounded-lg overflow-hidden shrink-0 ring-2 transition-colors ${
+                                                        selectedThumb === thumbIdx ? 'ring-zinc-900' : 'ring-transparent hover:ring-zinc-300'
+                                                    }`}
+                                                    title={`Use thumbnail ${thumbIdx + 1}`}
+                                                >
+                                                    <img
+                                                        src={`https://img.youtube.com/vi/${videoId}/${thumbIdx}.jpg`}
+                                                        alt=""
+                                                        className="w-16 h-9 object-cover bg-zinc-100"
+                                                    />
+                                                </button>
+                                            ))}
+                                        </div>
+                                    </div>
                                 )}
-                                <div className="flex-1 min-w-0">
-                                    <p className="text-sm text-zinc-600 truncate font-mono">{slide.url}</p>
-                                    <p className="text-xs text-zinc-400 mt-0.5">{slide.type === 'youtube' ? 'YouTube' : 'Uploaded'}</p>
-                                </div>
-                                <div className="flex items-center gap-1 shrink-0">
-                                    <button
-                                        onClick={() => moveSlide(i, -1)}
-                                        disabled={i === 0}
-                                        className="p-1.5 rounded-lg hover:bg-zinc-100 disabled:opacity-30 text-zinc-500"
-                                        title="Move up"
-                                    >
-                                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M18 15l-6-6-6 6" /></svg>
-                                    </button>
-                                    <button
-                                        onClick={() => moveSlide(i, 1)}
-                                        disabled={i === slides.length - 1}
-                                        className="p-1.5 rounded-lg hover:bg-zinc-100 disabled:opacity-30 text-zinc-500"
-                                        title="Move down"
-                                    >
-                                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M6 9l6 6 6-6" /></svg>
-                                    </button>
-                                    <button
-                                        onClick={() => removeSlide(i)}
-                                        className="p-1.5 rounded-lg hover:bg-red-50 text-zinc-400 hover:text-red-500"
-                                        title="Remove"
-                                    >
-                                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M18 6L6 18M6 6l12 12" /></svg>
-                                    </button>
-                                </div>
                             </div>
                         )
                     })}
