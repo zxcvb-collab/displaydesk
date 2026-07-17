@@ -4,6 +4,7 @@ import { createClient } from '@/lib/supabase/server'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import OrgScheduleSettings from './org-schedule-settings'
+import { includedScreens } from '@/lib/stripe'
 
 export const dynamic = 'force-dynamic'
 
@@ -62,12 +63,15 @@ export default async function DashboardPage() {
         .order('created_at', { ascending: true })
 
     const screenList = screens ?? []
-    const planLimit = org.plan === 'free' ? 1 : org.plan === 'starter' ? 2 : org.plan === 'pro' ? 5 : 15
+    const planLimit = includedScreens(org.plan)
+    const isPaid = org.plan !== 'free'
+    const extraScreens = Math.max(0, screenList.length - planLimit)
+    const addonRate = { starter: 5, pro: 4, business: 3 }[org.plan as 'starter' | 'pro' | 'business'] ?? 0
 
     const PLANS = [
-        { id: 'starter', name: 'Starter', price: '$9/mo', screens: 2 },
-        { id: 'pro', name: 'Pro', price: '$24/mo', screens: 5 },
-        { id: 'business', name: 'Business', price: '$59/mo', screens: 15 },
+        { id: 'starter', name: 'Starter', price: '$9/mo', screens: 2, addon: '+$5/screen' },
+        { id: 'pro', name: 'Pro', price: '$24/mo', screens: 5, addon: '+$4/screen' },
+        { id: 'business', name: 'Business', price: '$59/mo', screens: 15, addon: '+$3/screen' },
     ] as const
 
     // Free trial expired without upgrading — block screen management,
@@ -106,13 +110,16 @@ export default async function DashboardPage() {
                 <div>
                     <h1 className="text-2xl font-bold tracking-tight text-zinc-900">Screens</h1>
                     <p className="text-sm text-zinc-500 mt-1">
-                        {screenList.length} of {planLimit} screens used
+                        {screenList.length} of {planLimit} screens included
+                        {extraScreens > 0 && (
+                            <span className="text-zinc-400"> · {extraScreens} extra at {addonRate > 0 ? `$${addonRate}/mo each` : 'add-on rate'}</span>
+                        )}
                     </p>
                 </div>
                 <form action="/api/screens" method="POST">
                     <Button
                         type="submit"
-                        disabled={screenList.length >= planLimit}
+                        disabled={!isPaid && screenList.length >= planLimit}
                     >
                         + Add screen
                     </Button>
@@ -231,7 +238,8 @@ export default async function DashboardPage() {
                         <div key={plan.id} className="bg-white border border-zinc-200 rounded-2xl p-4">
                             <p className="font-semibold text-zinc-900">{plan.name}</p>
                             <p className="text-sm text-zinc-500 mb-1">{plan.price}</p>
-                            <p className="text-xs text-zinc-400 mb-3">{plan.screens} screens included</p>
+                            <p className="text-xs text-zinc-400 mb-1">{plan.screens} screens included</p>
+                            <p className="text-xs text-zinc-400 mb-3">{plan.addon} beyond that</p>
                             {org.plan === plan.id ? (
                                 <Badge variant="outline">Current plan</Badge>
                             ) : (

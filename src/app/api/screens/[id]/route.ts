@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
+import { isPaidPlan, syncScreenAddon } from '@/lib/stripe'
 
 // Returns null (treated as unauthorized) for disabled orgs too — the
 // dashboard blocks access at the UI level, but mutating routes need their
@@ -9,7 +10,7 @@ async function getOrgForUser(supabase: Awaited<ReturnType<typeof createClient>>)
     if (!user) return null
     const { data: org } = await supabase
         .from('organisations')
-        .select('id, status')
+        .select('id, status, plan, stripe_subscription_id')
         .eq('owner_id', user.id)
         .single()
     if (!org || org.status === 'disabled') return null
@@ -54,5 +55,18 @@ export async function DELETE(_request: Request, { params }: { params: Promise<{ 
         .eq('org_id', org.id)
 
     if (error) return NextResponse.json({ error: error.message }, { status: 500 })
+
+    if (isPaidPlan(org.plan) && org.stripe_subscription_id) {
+        try {
+            const { count } = await supabase
+                .from('screens')
+                .select('*', { count: 'exact', head: true })
+                .eq('org_id', org.id)
+            await syncScreenAddon(org.stripe_subscription_id, org.plan, count ?? 0)
+        } catch (err) {
+            console.error('Failed to sync screen add-on billing:', err)
+        }
+    }
+
     return NextResponse.json({ success: true })
 }

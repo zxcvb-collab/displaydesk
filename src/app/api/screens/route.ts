@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
+import { includedScreens, isPaidPlan, syncScreenAddon } from '@/lib/stripe'
 
 export async function POST(request: Request) {
     const origin = new URL(request.url).origin
@@ -9,21 +10,22 @@ export async function POST(request: Request) {
 
     const { data: org } = await supabase
         .from('organisations')
-        .select('id, plan, status')
+        .select('id, plan, status, stripe_subscription_id')
         .eq('owner_id', user.id)
         .single()
 
     if (!org) return NextResponse.json({ error: 'No organisation found' }, { status: 404 })
     if (org.status === 'disabled') return NextResponse.redirect(new URL('/dashboard', origin), 302)
 
-    // Check plan limit
-    const planLimit = org.plan === 'free' ? 1 : org.plan === 'starter' ? 2 : org.plan === 'pro' ? 5 : 15
     const { count } = await supabase
         .from('screens')
         .select('*', { count: 'exact', head: true })
         .eq('org_id', org.id)
 
-    if ((count ?? 0) >= planLimit) {
+    // Free tier is hard-capped, no path to add more without upgrading.
+    // Paid tiers can go beyond their included count - the extra screens
+    // are billed as an add-on (synced to Stripe below), not blocked.
+    if (org.plan === 'free' && (count ?? 0) >= includedScreens(org.plan)) {
         return NextResponse.redirect(new URL('/dashboard', origin), 302)
     }
 
@@ -37,6 +39,14 @@ export async function POST(request: Request) {
         .single()
 
     if (error) return NextResponse.json({ error: error.message }, { status: 500 })
+
+    if (isPaidPlan(org.plan) && org.stripe_subscription_id) {
+        try {
+            await syncScreenAddon(org.stripe_subscription_id, org.plan, (count ?? 0) + 1)
+        } catch (err) {
+            console.error('Failed to sync screen add-on billing:', err)
+        }
+    }
 
     return NextResponse.redirect(
         new URL(`/screens/${screen.id}`, origin),
