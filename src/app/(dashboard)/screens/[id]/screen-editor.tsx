@@ -292,6 +292,16 @@ export default function ScreenEditor({
                 </div>
             </div>
 
+            {/* TV setup instructions */}
+            <div className="bg-zinc-900 text-white rounded-2xl p-4 mb-8 flex items-center justify-between">
+                <div>
+                    <p className="text-sm font-medium mb-0.5">TV setup</p>
+                    <p className="text-sm text-zinc-400">
+                        On the TV, bookmark <span className="font-mono text-white">displaydesk.vercel.app/tv</span> and enter PIN <span className="font-mono text-white">{screen.pin}</span>
+                    </p>
+                </div>
+            </div>
+
             {/* Slides */}
             <div className="mb-4 flex items-center justify-between">
                 <h2 className="font-semibold text-zinc-900">Videos</h2>
