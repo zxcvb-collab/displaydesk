@@ -21,10 +21,14 @@ export function isPaidPlan(plan: string): plan is PaidPlan {
 // Additional-screen add-on prices, one per paid tier (billed per extra
 // screen beyond the tier's included count). Free tier has no add-on -
 // it's hard-capped at 1 screen, no path to buy more without upgrading.
+// CAD, matching the account's base plan prices - the first version of
+// these was accidentally created in USD, which fails when a subscription
+// carrying a CAD base price item tries to add a USD line item (Stripe
+// subscriptions are single-currency). Archived, replaced with these.
 export const ADDON_PRICE_IDS: Record<PaidPlan, string> = {
-    starter: 'price_1TuLF00IIn3DetD8KSMc4926',
-    pro: 'price_1TuLF10IIn3DetD8xxBUT8Q1',
-    business: 'price_1TuLF10IIn3DetD811Fpje1I',
+    starter: 'price_1TuOmp0IIn3DetD8Mz6guv4O',
+    pro: 'price_1TuOmp0IIn3DetD8h9Ce7qjP',
+    business: 'price_1TuOmp0IIn3DetD8GepH1vwc',
 }
 
 export const ADDON_PRICE_ID_TO_PLAN: Record<string, PaidPlan> = Object.fromEntries(
