@@ -235,6 +235,27 @@ export default function TVPlayer({
         return () => { cancelled = true }
     }, [slides])
 
+    // Proactively warm the YouTube offline-fallback thumbnails too — the
+    // fallback <img> only exists in the DOM once already offline (it's a
+    // conditional render), so without this, the browser never actually
+    // requests the thumbnail while online and the service worker never
+    // gets a chance to cache it. no-cors since these are cross-origin;
+    // we don't need to read the response, just want the SW to intercept
+    // and cache it.
+    useEffect(() => {
+        const thumbUrls = slides
+            .filter((s) => s.type === 'youtube')
+            .map((s) => {
+                const id = getYouTubeId(s.url)
+                return id ? `https://img.youtube.com/vi/${id}/${s.offlineThumb ?? 0}.jpg` : null
+            })
+            .filter((u): u is string => u !== null)
+
+        for (const url of thumbUrls) {
+            fetch(url, { mode: 'no-cors' }).catch(() => {})
+        }
+    }, [slides])
+
     // Re-evaluate open/closed state locally every 15s using the TV's own
     // clock — no network call needed, just catches the exact minute the
     // schedule crosses an open/close boundary between content polls.
