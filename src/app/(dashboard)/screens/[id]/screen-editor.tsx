@@ -409,6 +409,18 @@ export default function ScreenEditor({
                     </Button>
                 </div>
 
+                <div className="bg-white border border-zinc-200 rounded-2xl p-4">
+                    <p className="text-sm font-medium text-zinc-700 mb-1">Design your menu in Canva</p>
+                    <p className="text-xs text-zinc-500 mb-3">
+                        Opens Canva in a new tab. When you&rsquo;re done, export as MP4 and upload it above.
+                    </p>
+                    <Button asChild variant="outline">
+                        <a href="https://www.canva.com/create/videos/" target="_blank" rel="noopener noreferrer">
+                            Open Canva
+                        </a>
+                    </Button>
+                </div>
+
                 {urlError && <p className="text-sm text-red-600">{urlError}</p>}
             </div>
 
