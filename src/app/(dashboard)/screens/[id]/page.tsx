@@ -36,7 +36,7 @@ export default async function ScreenPage({ params }: { params: Promise<{ id: str
     const slides = Array.isArray(screen.slides)
         ? screen.slides.map((slide: unknown) => {
             if (typeof slide === 'object' && slide !== null && 'url' in slide && 'type' in slide) {
-                return slide as { url: string; type: 'youtube' | 'video'; offlineThumb?: number }
+                return slide as { url: string; type: 'youtube' | 'video' }
             }
             if (typeof slide === 'string') {
                 return { url: slide, type: 'youtube' as const }

@@ -28,7 +28,6 @@ function getYouTubeId(url: string): string | null {
 type Slide = {
     url: string
     type: 'youtube' | 'video'
-    offlineThumb?: number
 }
 
 function getVideoIds(slides: Slide[]): string[] {
@@ -247,7 +246,7 @@ export default function TVPlayer({
             .filter((s) => s.type === 'youtube')
             .map((s) => {
                 const id = getYouTubeId(s.url)
-                return id ? `https://img.youtube.com/vi/${id}/${s.offlineThumb ?? 0}.jpg` : null
+                return id ? `https://img.youtube.com/vi/${id}/hqdefault.jpg` : null
             })
             .filter((u): u is string => u !== null)
 
@@ -496,11 +495,17 @@ export default function TVPlayer({
             />
 
             {/* YouTube can't play offline (streams live from YouTube's own
-                servers) — show the admin-selected static thumbnail instead
-                of a frozen/broken embed while connectivity is down */}
+                servers) — show YouTube's high-res default thumbnail instead
+                of a frozen/broken embed while connectivity is down.
+                hqdefault (480x360) is the only YouTube-provided thumbnail
+                guaranteed to exist at real resolution for any video — the
+                three "alternate moment" thumbnails (1/2/3.jpg) are always
+                served at ~120x90 regardless of source quality, so letting
+                the admin pick one of those traded quality for no real
+                benefit. Always uses the sharp one now. */}
             {showOfflineFallback && (
                 <img
-                    src={`https://img.youtube.com/vi/${currentYouTubeId}/${currentSlide?.offlineThumb ?? 0}.jpg`}
+                    src={`https://img.youtube.com/vi/${currentYouTubeId}/hqdefault.jpg`}
                     alt=""
                     className="fixed inset-0 w-full h-full object-contain bg-black"
                 />

@@ -13,7 +13,6 @@ import { emptySchedule, type ScheduleMode, type WeekSchedule } from '@/lib/sched
 type Slide = {
     url: string
     type: 'youtube' | 'video'
-    offlineThumb?: number
 }
 
 type Screen = {
@@ -219,11 +218,6 @@ export default function ScreenEditor({
         logActivity('delete', slide.url)
     }
 
-    function setOfflineThumb(index: number, thumbIndex: number) {
-        const next = slides.map((s, i) => (i === index ? { ...s, offlineThumb: thumbIndex } : s))
-        updateSlides(next)
-    }
-
     function moveSlide(index: number, direction: -1 | 1) {
         const next = [...slides]
         const target = index + direction
@@ -320,7 +314,6 @@ export default function ScreenEditor({
                     {slides.map((slide, i) => {
                         const videoId = slide.type === 'youtube' ? getYouTubeId(slide.url) : null
                         const isUploaded = slide.type === 'video'
-                        const selectedThumb = slide.offlineThumb ?? 0
                         return (
                             <div
                                 key={i}
@@ -372,29 +365,9 @@ export default function ScreenEditor({
                                 </div>
 
                                 {videoId && (
-                                    <div className="mt-3 pt-3 border-t border-zinc-100">
-                                        <p className="text-xs text-zinc-500 mb-2">
-                                            Offline fallback image — shown if the TV loses internet while this video is playing
-                                        </p>
-                                        <div className="flex gap-2">
-                                            {[0, 1, 2, 3].map((thumbIdx) => (
-                                                <button
-                                                    key={thumbIdx}
-                                                    onClick={() => setOfflineThumb(i, thumbIdx)}
-                                                    className={`rounded-lg overflow-hidden shrink-0 ring-2 transition-colors ${
-                                                        selectedThumb === thumbIdx ? 'ring-zinc-900' : 'ring-transparent hover:ring-zinc-300'
-                                                    }`}
-                                                    title={`Use thumbnail ${thumbIdx + 1}`}
-                                                >
-                                                    <img
-                                                        src={`https://img.youtube.com/vi/${videoId}/${thumbIdx}.jpg`}
-                                                        alt=""
-                                                        className="w-16 h-9 object-cover bg-zinc-100"
-                                                    />
-                                                </button>
-                                            ))}
-                                        </div>
-                                    </div>
+                                    <p className="mt-3 pt-3 border-t border-zinc-100 text-xs text-zinc-400">
+                                        If the TV loses internet during this video, it shows a static thumbnail instead of a frozen screen
+                                    </p>
                                 )}
                             </div>
                         )
