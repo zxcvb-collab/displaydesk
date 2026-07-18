@@ -1,10 +1,13 @@
 import { redirect } from 'next/navigation'
 import Link from 'next/link'
 import { createClient } from '@/lib/supabase/server'
+import { createAdminClient } from '@/lib/supabase/admin'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import OrgScheduleSettings from './org-schedule-settings'
+import TeamSettings from './team-settings'
 import { includedScreens } from '@/lib/stripe'
+import { resolveOrgId } from '@/lib/org'
 
 export const dynamic = 'force-dynamic'
 
@@ -30,18 +33,12 @@ export default async function DashboardPage() {
     const { data: { user } } = await supabase.auth.getUser()
     if (!user) redirect('/login')
 
-    let { data: org, error: orgError } = await supabase
-        .from('organisations')
-        .select('*')
-        .eq('owner_id', user.id)
-        .single()
+    const resolved = await resolveOrgId(supabase, user.id)
+    let org
+    let isOwner = true
 
-    if (orgError && orgError.code !== 'PGRST116') {
-        console.error('Dashboard org fetch error:', orgError)
-        throw new Error(`Failed to fetch organisation: ${orgError.code} - ${orgError.message}`)
-    }
-
-    if (!org) {
+    if (!resolved) {
+        // Brand-new signup with no org yet and no membership - create as owner
         const businessName = user.user_metadata?.business_name || 'My Business'
         const { data: newOrg, error: insertError } = await supabase
             .from('organisations')
@@ -54,6 +51,35 @@ export default async function DashboardPage() {
             throw new Error(`Failed to create organisation: ${insertError.message}`)
         }
         org = newOrg
+    } else {
+        isOwner = resolved.role === 'owner'
+        const { data, error: orgError } = await supabase
+            .from('organisations')
+            .select('*')
+            .eq('id', resolved.orgId)
+            .single()
+
+        if (orgError || !data) {
+            console.error('Dashboard org fetch error:', orgError)
+            throw new Error(`Failed to fetch organisation: ${orgError?.code} - ${orgError?.message}`)
+        }
+        org = data
+    }
+
+    const { data: memberRows } = await supabase
+        .from('org_members')
+        .select('user_id')
+        .eq('org_id', org.id)
+
+    let members: { userId: string; email: string }[] = []
+    if (memberRows && memberRows.length > 0) {
+        const admin = createAdminClient()
+        members = await Promise.all(
+            memberRows.map(async (m) => {
+                const { data: userData } = await admin.auth.admin.getUserById(m.user_id)
+                return { userId: m.user_id, email: userData?.user?.email ?? 'Unknown' }
+            })
+        )
     }
 
     const { data: screens } = await supabase
@@ -82,9 +108,12 @@ export default async function DashboardPage() {
                 <div className="text-center py-16 border-2 border-dashed border-amber-200 rounded-2xl bg-amber-50 mb-10">
                     <p className="font-semibold text-zinc-900 mb-1">Your free trial has ended</p>
                     <p className="text-sm text-zinc-600">
-                        Your screens are paused, but all your videos and settings are safe. Upgrade below to resume playback instantly.
+                        {isOwner
+                            ? 'Your screens are paused, but all your videos and settings are safe. Upgrade below to resume playback instantly.'
+                            : 'Your screens are paused because the account owner has not upgraded yet. Ask them to upgrade to resume playback.'}
                     </p>
                 </div>
+                {isOwner && (
                 <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                     {PLANS.map((plan) => (
                         <div key={plan.id} className="bg-white border border-zinc-200 rounded-2xl p-4">
@@ -99,6 +128,7 @@ export default async function DashboardPage() {
                         </div>
                     ))}
                 </div>
+                )}
             </div>
         )
     }
@@ -216,43 +246,47 @@ export default async function DashboardPage() {
                 </div>
             )}
 
-            <OrgScheduleSettings initialSchedule={org.default_schedule ?? null} />
+            {isOwner && <OrgScheduleSettings initialSchedule={org.default_schedule ?? null} />}
 
-            {/* Billing */}
-            <div className="mt-10">
-                <div className="flex items-center justify-between mb-4">
-                    <h2 className="font-semibold text-zinc-900">Billing</h2>
-                    {org.stripe_subscription_id && (
-                        <form action="/api/billing/portal" method="POST">
-                            <Button type="submit" variant="ghost" size="sm">
-                                Manage billing
-                            </Button>
-                        </form>
-                    )}
+            <TeamSettings isOwner={isOwner} initialMembers={members} />
+
+            {/* Billing — owner only */}
+            {isOwner && (
+                <div className="mt-10">
+                    <div className="flex items-center justify-between mb-4">
+                        <h2 className="font-semibold text-zinc-900">Billing</h2>
+                        {org.stripe_subscription_id && (
+                            <form action="/api/billing/portal" method="POST">
+                                <Button type="submit" variant="ghost" size="sm">
+                                    Manage billing
+                                </Button>
+                            </form>
+                        )}
+                    </div>
+                    <p className="text-sm text-zinc-500 mb-4">
+                        Current plan: <span className="font-medium text-zinc-900 capitalize">{org.plan}</span>
+                    </p>
+                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                        {PLANS.map((plan) => (
+                            <div key={plan.id} className="bg-white border border-zinc-200 rounded-2xl p-4">
+                                <p className="font-semibold text-zinc-900">{plan.name}</p>
+                                <p className="text-sm text-zinc-500 mb-1">{plan.price}</p>
+                                <p className="text-xs text-zinc-400 mb-1">{plan.screens} screens included</p>
+                                <p className="text-xs text-zinc-400 mb-3">{plan.addon} beyond that</p>
+                                {org.plan === plan.id ? (
+                                    <Badge variant="outline">Current plan</Badge>
+                                ) : (
+                                    <form action={`/api/billing/checkout?plan=${plan.id}`} method="POST">
+                                        <Button type="submit" size="sm" className="w-full">
+                                            {org.plan === 'free' ? 'Upgrade' : 'Switch'}
+                                        </Button>
+                                    </form>
+                                )}
+                            </div>
+                        ))}
+                    </div>
                 </div>
-                <p className="text-sm text-zinc-500 mb-4">
-                    Current plan: <span className="font-medium text-zinc-900 capitalize">{org.plan}</span>
-                </p>
-                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-                    {PLANS.map((plan) => (
-                        <div key={plan.id} className="bg-white border border-zinc-200 rounded-2xl p-4">
-                            <p className="font-semibold text-zinc-900">{plan.name}</p>
-                            <p className="text-sm text-zinc-500 mb-1">{plan.price}</p>
-                            <p className="text-xs text-zinc-400 mb-1">{plan.screens} screens included</p>
-                            <p className="text-xs text-zinc-400 mb-3">{plan.addon} beyond that</p>
-                            {org.plan === plan.id ? (
-                                <Badge variant="outline">Current plan</Badge>
-                            ) : (
-                                <form action={`/api/billing/checkout?plan=${plan.id}`} method="POST">
-                                    <Button type="submit" size="sm" className="w-full">
-                                        {org.plan === 'free' ? 'Upgrade' : 'Switch'}
-                                    </Button>
-                                </form>
-                            )}
-                        </div>
-                    ))}
-                </div>
-            </div>
+            )}
         </div>
     )
 }

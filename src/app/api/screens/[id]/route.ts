@@ -1,17 +1,21 @@
 import { NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { isPaidPlan, syncScreenAddon } from '@/lib/stripe'
+import { resolveOrgId } from '@/lib/org'
 
 // Returns null (treated as unauthorized) for disabled orgs too — the
 // dashboard blocks access at the UI level, but mutating routes need their
-// own check since RLS is scoped to ownership, not lifecycle status.
+// own check since RLS is scoped to ownership, not lifecycle status. Owners
+// and members both get full screen-management access.
 async function getOrgForUser(supabase: Awaited<ReturnType<typeof createClient>>) {
     const { data: { user } } = await supabase.auth.getUser()
     if (!user) return null
+    const resolved = await resolveOrgId(supabase, user.id)
+    if (!resolved) return null
     const { data: org } = await supabase
         .from('organisations')
         .select('id, status, plan, stripe_subscription_id')
-        .eq('owner_id', user.id)
+        .eq('id', resolved.orgId)
         .single()
     if (!org || org.status === 'disabled') return null
     return org

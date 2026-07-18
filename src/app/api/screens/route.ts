@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { includedScreens, isPaidPlan, syncScreenAddon } from '@/lib/stripe'
+import { resolveOrgId } from '@/lib/org'
 
 export async function POST(request: Request) {
     const origin = new URL(request.url).origin
@@ -8,10 +9,13 @@ export async function POST(request: Request) {
     const { data: { user } } = await supabase.auth.getUser()
     if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
+    const resolved = await resolveOrgId(supabase, user.id)
+    if (!resolved) return NextResponse.json({ error: 'No organisation found' }, { status: 404 })
+
     const { data: org } = await supabase
         .from('organisations')
         .select('id, plan, status, stripe_subscription_id')
-        .eq('owner_id', user.id)
+        .eq('id', resolved.orgId)
         .single()
 
     if (!org) return NextResponse.json({ error: 'No organisation found' }, { status: 404 })

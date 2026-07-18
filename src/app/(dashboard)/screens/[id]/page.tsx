@@ -1,5 +1,6 @@
 import { redirect, notFound } from 'next/navigation'
 import { createClient } from '@/lib/supabase/server'
+import { resolveOrgId } from '@/lib/org'
 import ScreenEditor from './screen-editor'
 
 export const dynamic = 'force-dynamic'
@@ -11,10 +12,13 @@ export default async function ScreenPage({ params }: { params: Promise<{ id: str
     const { data: { user } } = await supabase.auth.getUser()
     if (!user) redirect('/login')
 
+    const resolved = await resolveOrgId(supabase, user.id)
+    if (!resolved) redirect('/login')
+
     const { data: org } = await supabase
         .from('organisations')
         .select('id, default_schedule, status')
-        .eq('owner_id', user.id)
+        .eq('id', resolved.orgId)
         .single()
 
     if (!org) redirect('/login')
