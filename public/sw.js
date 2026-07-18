@@ -1,6 +1,6 @@
-// Scoped to /tv/* only (see registration in player.tsx) — lets the TV
-// player survive a full reload/restart during an outage, not just a
-// mid-session network blip. Network-first, falling back to the last
+// Scoped to /tv/* only (see registration in the root layout, beforeInteractive)
+// — lets the TV player survive a full reload/restart during an outage, not
+// just a mid-session network blip. Network-first, falling back to the last
 // successfully cached response when offline: always prefer fresh content
 // when reachable, fall back to last-known-good when not.
 //
@@ -21,7 +21,12 @@ function shouldHandle(url) {
     return (
         url.pathname.startsWith('/tv') ||
         url.pathname.startsWith('/api/tv/') ||
-        url.pathname.startsWith('/_next/static')
+        url.pathname.startsWith('/_next/static') ||
+        // YouTube's auto-generated thumbnails, used as the offline fallback
+        // image for YouTube slides — cross-origin, so the response comes
+        // back opaque (status 0, ok: false) even on success; must be
+        // cached unconditionally rather than gated on response.ok
+        url.hostname === 'img.youtube.com'
     )
 }
 
@@ -34,7 +39,7 @@ self.addEventListener('fetch', (event) => {
             const cache = await caches.open(CACHE_NAME)
             try {
                 const networkResponse = await fetch(event.request)
-                if (networkResponse.ok) {
+                if (networkResponse.ok || networkResponse.type === 'opaque') {
                     cache.put(event.request, networkResponse.clone())
                 }
                 return networkResponse
