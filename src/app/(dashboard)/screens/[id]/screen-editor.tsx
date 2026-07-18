@@ -16,6 +16,7 @@ type Slide = {
     type: 'youtube' | 'video' | 'design'
     design?: DesignData
     duration?: number
+    name?: string
 }
 
 type Screen = {
@@ -346,7 +347,9 @@ export default function ScreenEditor({
                                     )}
                                     <div className="flex-1 min-w-0">
                                         <p className="text-sm text-zinc-600 truncate font-mono">
-                                            {isDesign ? `Design (${slide.design?.elements.length ?? 0} elements)` : slide.url}
+                                            {isDesign
+                                                ? slide.name || `Design (${slide.design?.elements.length ?? 0} elements)`
+                                                : slide.url}
                                         </p>
                                         <p className="text-xs text-zinc-400 mt-0.5">
                                             {slide.type === 'youtube' ? 'YouTube' : slide.type === 'video' ? 'Uploaded' : 'Design'}

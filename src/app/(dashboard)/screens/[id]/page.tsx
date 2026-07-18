@@ -9,6 +9,7 @@ type Slide = {
     type: 'youtube' | 'video' | 'design'
     design?: DesignData
     duration?: number
+    name?: string
 }
 
 export const dynamic = 'force-dynamic'
@@ -49,7 +50,7 @@ export default async function ScreenPage({ params }: { params: Promise<{ id: str
             if (typeof slide === 'object' && slide !== null && 'type' in slide) {
                 const s = slide as Slide
                 if (s.type === 'design') {
-                    return { type: 'design' as const, design: s.design ?? emptyDesign(), duration: s.duration }
+                    return { type: 'design' as const, design: s.design ?? emptyDesign(), duration: s.duration, name: s.name }
                 }
                 if ('url' in s) {
                     return s

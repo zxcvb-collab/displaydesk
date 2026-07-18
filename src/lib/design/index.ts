@@ -14,6 +14,7 @@
 export const CANVAS_WIDTH = 1920
 export const CANVAS_HEIGHT = 1080
 export const DEFAULT_DURATION_SECONDS = 8
+export const DEFAULT_IMAGE_INTERVAL_SECONDS = 5
 
 export type TextElement = {
     id: string
@@ -29,6 +30,9 @@ export type TextElement = {
     align: 'left' | 'center' | 'right'
 }
 
+// `urls` holds one or more images; when there's more than one, the player
+// cycles through them on its own timer (a slideshow within this one
+// element's position/size), independent of the overall slide duration.
 export type ImageElement = {
     id: string
     kind: 'image'
@@ -36,7 +40,10 @@ export type ImageElement = {
     y: number
     width: number
     height: number
-    url: string
+    urls: string[]
+    intervalSeconds: number
+    /** @deprecated old single-image shape, kept only for reading designs saved before the slideshow feature */
+    url?: string
 }
 
 export type RectElement = {
@@ -49,13 +56,35 @@ export type RectElement = {
     color: string
 }
 
-export type DesignElement = TextElement | ImageElement | RectElement
+export type TableElement = {
+    id: string
+    kind: 'table'
+    x: number
+    y: number
+    width: number
+    height: number
+    rows: string[][]
+    fontSize: number
+    color: string
+    borderColor: string
+    headerRow: boolean
+}
+
+export type DesignElement = TextElement | ImageElement | RectElement | TableElement
 
 export type DesignBackground = { type: 'color'; value: string } | { type: 'image'; url: string }
 
 export type DesignData = {
     background: DesignBackground
     elements: DesignElement[]
+}
+
+// Reads an ImageElement of either the old (`url`) or new (`urls`) shape and
+// always returns a non-empty urls array.
+export function imageUrls(el: ImageElement): string[] {
+    if (el.urls && el.urls.length > 0) return el.urls
+    if (el.url) return [el.url]
+    return []
 }
 
 export function emptyDesign(): DesignData {
@@ -90,7 +119,7 @@ export function newRectElement(): RectElement {
     }
 }
 
-export function newImageElement(url: string): ImageElement {
+export function newImageElement(urls: string[]): ImageElement {
     return {
         id: crypto.randomUUID(),
         kind: 'image',
@@ -98,6 +127,38 @@ export function newImageElement(url: string): ImageElement {
         y: 340,
         width: 800,
         height: 450,
-        url,
+        urls,
+        intervalSeconds: DEFAULT_IMAGE_INTERVAL_SECONDS,
+    }
+}
+
+export function newTableElement(): TableElement {
+    return {
+        id: crypto.randomUUID(),
+        kind: 'table',
+        x: 460,
+        y: 300,
+        width: 1000,
+        height: 480,
+        rows: [
+            ['Item', 'Price'],
+            ['Latte', '$4.50'],
+            ['Cappuccino', '$4.75'],
+            ['Espresso', '$3.00'],
+        ],
+        fontSize: 40,
+        color: '#ffffff',
+        borderColor: '#52525b',
+        headerRow: true,
+    }
+}
+
+// Regenerates every element ID in a design — used whenever a design is
+// loaded from a template so that repeated uses of the same template don't
+// end up sharing element identity across unrelated slides.
+export function cloneDesignWithFreshIds(design: DesignData): DesignData {
+    return {
+        background: design.background,
+        elements: design.elements.map((el) => ({ ...el, id: crypto.randomUUID() })),
     }
 }

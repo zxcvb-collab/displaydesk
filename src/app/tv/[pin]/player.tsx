@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState, useCallback } from 'react'
 import { resolveEffectiveSchedule, isOpenNow, type ScheduleMode, type WeekSchedule } from '@/lib/schedule'
-import { CANVAS_WIDTH, CANVAS_HEIGHT, DEFAULT_DURATION_SECONDS, type DesignData } from '@/lib/design'
+import { CANVAS_WIDTH, CANVAS_HEIGHT, DEFAULT_DURATION_SECONDS, DEFAULT_IMAGE_INTERVAL_SECONDS, imageUrls, type DesignData, type ImageElement } from '@/lib/design'
 
 declare global {
     interface Window {
@@ -31,6 +31,27 @@ type Slide = {
     type: 'youtube' | 'video' | 'design'
     design?: DesignData
     duration?: number
+    name?: string
+}
+
+// Cycles through an image element's urls on its own timer, independent of
+// the overall slide's duration — a slideshow within one design element.
+function DesignImageSlideshow({ el, style }: { el: ImageElement; style: React.CSSProperties }) {
+    const urls = imageUrls(el)
+    const [index, setIndex] = useState(0)
+
+    useEffect(() => {
+        setIndex(0)
+        if (urls.length <= 1) return
+        const interval = setInterval(() => {
+            setIndex((i) => (i + 1) % urls.length)
+        }, (el.intervalSeconds || DEFAULT_IMAGE_INTERVAL_SECONDS) * 1000)
+        return () => clearInterval(interval)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [urls.join('|'), el.intervalSeconds])
+
+    if (urls.length === 0) return null
+    return <img src={urls[index]} alt="" style={style} className="object-cover" />
 }
 
 function getVideoIds(slides: Slide[]): string[] {
@@ -607,7 +628,39 @@ export default function TVPlayer({
                             )
                         }
                         if (el.kind === 'image') {
-                            return <img key={el.id} src={el.url} alt="" style={style} className="object-cover" />
+                            return <DesignImageSlideshow key={el.id} el={el} style={style} />
+                        }
+                        if (el.kind === 'table') {
+                            return (
+                                <table
+                                    key={el.id}
+                                    style={{
+                                        ...style,
+                                        borderCollapse: 'collapse',
+                                        fontSize: `${(el.fontSize / CANVAS_HEIGHT) * 100}cqh`,
+                                        color: el.color,
+                                    } as React.CSSProperties}
+                                >
+                                    <tbody>
+                                        {el.rows.map((row, r) => (
+                                            <tr key={r}>
+                                                {row.map((cell, c) => (
+                                                    <td
+                                                        key={c}
+                                                        style={{
+                                                            border: `1px solid ${el.borderColor}`,
+                                                            padding: '0.3cqh 0.6cqw',
+                                                            fontWeight: r === 0 && el.headerRow ? 700 : 400,
+                                                        } as React.CSSProperties}
+                                                    >
+                                                        {cell}
+                                                    </td>
+                                                ))}
+                                            </tr>
+                                        ))}
+                                    </tbody>
+                                </table>
+                            )
                         }
                         return <div key={el.id} style={{ ...style, background: el.color }} />
                     })}

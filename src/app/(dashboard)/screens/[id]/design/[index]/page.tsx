@@ -47,14 +47,17 @@ export default async function DesignPage({
     const existing = isNew ? null : slides[slideIndex]
     const initialDesign: DesignData = existing?.design ?? emptyDesign()
     const initialDuration: number = existing?.duration ?? 8
+    const initialName: string = existing?.name ?? ''
 
     return (
         <DesignEditor
             screenId={screen.id}
             orgId={org.id}
             slideIndex={slideIndex}
+            isNew={isNew}
             initialDesign={initialDesign}
             initialDuration={initialDuration}
+            initialName={initialName}
         />
     )
 }
