@@ -344,22 +344,27 @@ export default function TVPlayer({
                 setSchedule(freshSchedule ?? null)
                 setOrgDefaultSchedule(freshOrgSchedule ?? null)
                 if (freshOrgStatus) setOrgStatus(freshOrgStatus)
+                // A successful request to our own server is real proof of
+                // connectivity — more reliable than the browser's online
+                // flag (see the offline-detection note below)
+                setIsOnline(true)
             } catch {
-                // silently ignore — keep playing what we have
+                // The fetch itself threw (not just a non-2xx response) —
+                // this is the real signal we rely on for offline detection.
+                // navigator.onLine/online/offline events only reflect "is
+                // there any network link at all," which stays true for the
+                // most common real outage (the router/ISP loses internet
+                // but the TV stays connected to the local wifi AP) — that
+                // case never fires those events, so relying on them alone
+                // silently never triggers the YouTube fallback image
+                // during exactly the outage it's meant to handle.
+                setIsOnline(false)
             }
         }
         poll()
         const interval = setInterval(poll, 60_000)
         return () => clearInterval(interval)
     }, [pin])
-
-    // Register the offline-capable service worker, scoped narrowly to
-    // /tv/ so it never touches the admin dashboard on a shared device
-    useEffect(() => {
-        if ('serviceWorker' in navigator) {
-            navigator.serviceWorker.register('/sw.js', { scope: '/tv/' }).catch(() => {})
-        }
-    }, [])
 
     // Bootstrap YouTube IFrame API once
     useEffect(() => {
