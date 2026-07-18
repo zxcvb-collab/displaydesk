@@ -41,6 +41,32 @@ function getUploadedVideos(slides: Slide[]): string[] {
     return slides.filter(s => s.type === 'video').map(s => s.url)
 }
 
+// hqdefault.jpg (480x360) is guaranteed to exist for any video but looks
+// soft stretched across a TV screen. maxresdefault.jpg (1280x720) is much
+// sharper but only exists for videos with a true HD source — when it
+// doesn't, YouTube returns HTTP 200 with a tiny 120x90 placeholder instead
+// of a real 404, so a plain fetch/response-status check can't tell the
+// difference. Loading it as an actual Image and checking naturalWidth
+// (a real maxresdefault is 1280px wide; the placeholder is 120px) is the
+// standard way to detect this.
+function resolveBestThumbnail(videoId: string): Promise<string> {
+    return new Promise((resolve) => {
+        const maxresUrl = `https://img.youtube.com/vi/${videoId}/maxresdefault.jpg`
+        const hqUrl = `https://img.youtube.com/vi/${videoId}/hqdefault.jpg`
+        const img = new Image()
+        const timeout = setTimeout(() => resolve(hqUrl), 4000)
+        img.onload = () => {
+            clearTimeout(timeout)
+            resolve(img.naturalWidth >= 640 ? maxresUrl : hqUrl)
+        }
+        img.onerror = () => {
+            clearTimeout(timeout)
+            resolve(hqUrl)
+        }
+        img.src = maxresUrl
+    })
+}
+
 // Offline resilience for uploaded videos: opportunistically cache them in
 // the browser's Cache Storage as they're seen, then fall back to the
 // cached copy if a network fetch fails (e.g. wifi drops mid-loop). This
@@ -144,6 +170,7 @@ export default function TVPlayer({
     useEffect(() => { isOpenRef.current = isOpen }, [isOpen])
     const [orgStatus, setOrgStatus] = useState(initialOrgStatus ?? 'active')
     const [isOnline, setIsOnline] = useState(() => typeof navigator === 'undefined' || navigator.onLine)
+    const [resolvedThumbs, setResolvedThumbs] = useState<Record<string, string>>({})
 
     // Extract valid video IDs and uploaded videos
     const youtubeIds = getVideoIds(slides)
@@ -234,25 +261,30 @@ export default function TVPlayer({
         return () => { cancelled = true }
     }, [slides])
 
-    // Proactively warm the YouTube offline-fallback thumbnails too — the
-    // fallback <img> only exists in the DOM once already offline (it's a
-    // conditional render), so without this, the browser never actually
-    // requests the thumbnail while online and the service worker never
-    // gets a chance to cache it. no-cors since these are cross-origin;
-    // we don't need to read the response, just want the SW to intercept
-    // and cache it.
+    // Resolve the best available thumbnail per video (maxresdefault if it
+    // really exists, hqdefault otherwise) and proactively warm the cache
+    // for it. The fallback <img> only exists in the DOM once already
+    // offline (a conditional render), so without this, the browser never
+    // actually requests the thumbnail while online and the service worker
+    // never gets a chance to cache it. no-cors since these are
+    // cross-origin; we don't need to read the response, just want the SW
+    // to intercept and cache it.
     useEffect(() => {
-        const thumbUrls = slides
-            .filter((s) => s.type === 'youtube')
-            .map((s) => {
-                const id = getYouTubeId(s.url)
-                return id ? `https://img.youtube.com/vi/${id}/hqdefault.jpg` : null
-            })
-            .filter((u): u is string => u !== null)
+        let cancelled = false
+        const ids = Array.from(new Set(
+            slides.filter((s) => s.type === 'youtube').map((s) => getYouTubeId(s.url)).filter((id): id is string => id !== null)
+        ))
 
-        for (const url of thumbUrls) {
-            fetch(url, { mode: 'no-cors' }).catch(() => {})
-        }
+        ;(async () => {
+            for (const id of ids) {
+                const url = await resolveBestThumbnail(id)
+                if (cancelled) return
+                setResolvedThumbs((prev) => (prev[id] === url ? prev : { ...prev, [id]: url }))
+                fetch(url, { mode: 'no-cors' }).catch(() => {})
+            }
+        })()
+
+        return () => { cancelled = true }
     }, [slides])
 
     // Re-evaluate open/closed state locally every 15s using the TV's own
@@ -495,17 +527,15 @@ export default function TVPlayer({
             />
 
             {/* YouTube can't play offline (streams live from YouTube's own
-                servers) — show YouTube's high-res default thumbnail instead
+                servers) — show YouTube's best available thumbnail instead
                 of a frozen/broken embed while connectivity is down.
-                hqdefault (480x360) is the only YouTube-provided thumbnail
-                guaranteed to exist at real resolution for any video — the
-                three "alternate moment" thumbnails (1/2/3.jpg) are always
-                served at ~120x90 regardless of source quality, so letting
-                the admin pick one of those traded quality for no real
-                benefit. Always uses the sharp one now. */}
+                maxresdefault (1280x720) when the video actually has one,
+                hqdefault (480x360) otherwise — resolved and cache-warmed
+                in the effect above, since maxresdefault silently 200s with
+                a tiny placeholder for videos that don't have a real one. */}
             {showOfflineFallback && (
                 <img
-                    src={`https://img.youtube.com/vi/${currentYouTubeId}/hqdefault.jpg`}
+                    src={currentYouTubeId ? (resolvedThumbs[currentYouTubeId] ?? `https://img.youtube.com/vi/${currentYouTubeId}/hqdefault.jpg`) : ''}
                     alt=""
                     className="fixed inset-0 w-full h-full object-contain bg-black"
                 />
