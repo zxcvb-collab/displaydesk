@@ -9,10 +9,13 @@ import { Input } from '@/components/ui/input'
 import { Badge } from '@/components/ui/badge'
 import WeekScheduleEditor from '@/components/week-schedule-editor'
 import { emptySchedule, type ScheduleMode, type WeekSchedule } from '@/lib/schedule'
+import type { DesignData } from '@/lib/design'
 
 type Slide = {
-    url: string
-    type: 'youtube' | 'video'
+    url?: string
+    type: 'youtube' | 'video' | 'design'
+    design?: DesignData
+    duration?: number
 }
 
 type Screen = {
@@ -198,7 +201,7 @@ export default function ScreenEditor({
     async function removeSlide(index: number) {
         const slide = slides[index]
 
-        if (slide.type === 'video') {
+        if (slide.type === 'video' && slide.url) {
             const confirmed = confirm(
                 'This will permanently delete the uploaded video file from storage. This cannot be undone. Continue?'
             )
@@ -215,7 +218,7 @@ export default function ScreenEditor({
         }
 
         updateSlides(slides.filter((_, i) => i !== index))
-        logActivity('delete', slide.url)
+        logActivity('delete', slide.url ?? 'design slide')
     }
 
     function moveSlide(index: number, direction: -1 | 1) {
@@ -237,7 +240,7 @@ export default function ScreenEditor({
         setDeleting(true)
         try {
             const paths = videoSlides
-                .map((s) => extractStoragePath(s.url))
+                .map((s) => extractStoragePath(s.url ?? ''))
                 .filter((p): p is string => p !== null)
             if (paths.length > 0) {
                 await supabase.storage.from('videos').remove(paths)
@@ -312,8 +315,9 @@ export default function ScreenEditor({
             {slides.length > 0 && (
                 <div className="space-y-3 mb-6">
                     {slides.map((slide, i) => {
-                        const videoId = slide.type === 'youtube' ? getYouTubeId(slide.url) : null
+                        const videoId = slide.type === 'youtube' && slide.url ? getYouTubeId(slide.url) : null
                         const isUploaded = slide.type === 'video'
+                        const isDesign = slide.type === 'design'
                         return (
                             <div
                                 key={i}
@@ -330,14 +334,33 @@ export default function ScreenEditor({
                                         <div className="w-24 h-14 bg-gradient-to-br from-blue-400 to-blue-600 rounded-lg shrink-0 flex items-center justify-center">
                                             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2" strokeLinecap="round"><path d="M23 7l-7 5 7 5V7z" /><rect x="1" y="5" width="15" height="14" rx="2" ry="2" /></svg>
                                         </div>
+                                    ) : isDesign ? (
+                                        <div
+                                            className="w-24 h-14 rounded-lg shrink-0 flex items-center justify-center overflow-hidden"
+                                            style={{ background: slide.design?.background.type === 'color' ? slide.design.background.value : '#27272a' }}
+                                        >
+                                            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2" strokeLinecap="round" opacity="0.7"><rect x="3" y="3" width="18" height="18" rx="2" /><path d="M8 12h8M8 8h5M8 16h3" /></svg>
+                                        </div>
                                     ) : (
                                         <div className="w-24 h-14 bg-zinc-100 rounded-lg shrink-0" />
                                     )}
                                     <div className="flex-1 min-w-0">
-                                        <p className="text-sm text-zinc-600 truncate font-mono">{slide.url}</p>
-                                        <p className="text-xs text-zinc-400 mt-0.5">{slide.type === 'youtube' ? 'YouTube' : 'Uploaded'}</p>
+                                        <p className="text-sm text-zinc-600 truncate font-mono">
+                                            {isDesign ? `Design (${slide.design?.elements.length ?? 0} elements)` : slide.url}
+                                        </p>
+                                        <p className="text-xs text-zinc-400 mt-0.5">
+                                            {slide.type === 'youtube' ? 'YouTube' : slide.type === 'video' ? 'Uploaded' : 'Design'}
+                                        </p>
                                     </div>
                                     <div className="flex items-center gap-1 shrink-0">
+                                        {isDesign && (
+                                            <Link
+                                                href={`/screens/${screen.id}/design/${i}`}
+                                                className="px-2.5 py-1.5 rounded-lg hover:bg-zinc-100 text-zinc-500 text-xs font-medium"
+                                            >
+                                                Edit
+                                            </Link>
+                                        )}
                                         <button
                                             onClick={() => moveSlide(i, -1)}
                                             disabled={i === 0}
@@ -410,7 +433,17 @@ export default function ScreenEditor({
                 </div>
 
                 <div className="bg-white border border-zinc-200 rounded-2xl p-4">
-                    <p className="text-sm font-medium text-zinc-700 mb-1">Design your menu in Canva</p>
+                    <p className="text-sm font-medium text-zinc-700 mb-1">Build a menu board here</p>
+                    <p className="text-xs text-zinc-500 mb-3">
+                        Design text, images, and backgrounds directly — no video export needed, updates instantly.
+                    </p>
+                    <Button asChild>
+                        <Link href={`/screens/${screen.id}/design/new`}>Create a design</Link>
+                    </Button>
+                </div>
+
+                <div className="bg-white border border-zinc-200 rounded-2xl p-4">
+                    <p className="text-sm font-medium text-zinc-700 mb-1">Or design your menu in Canva</p>
                     <p className="text-xs text-zinc-500 mb-3">
                         Opens Canva in a new tab. When you&rsquo;re done, export as MP4 and upload it above.
                     </p>

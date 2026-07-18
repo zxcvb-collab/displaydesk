@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState, useCallback } from 'react'
 import { resolveEffectiveSchedule, isOpenNow, type ScheduleMode, type WeekSchedule } from '@/lib/schedule'
+import { CANVAS_WIDTH, CANVAS_HEIGHT, DEFAULT_DURATION_SECONDS, type DesignData } from '@/lib/design'
 
 declare global {
     interface Window {
@@ -26,19 +27,21 @@ function getYouTubeId(url: string): string | null {
 }
 
 type Slide = {
-    url: string
-    type: 'youtube' | 'video'
+    url?: string
+    type: 'youtube' | 'video' | 'design'
+    design?: DesignData
+    duration?: number
 }
 
 function getVideoIds(slides: Slide[]): string[] {
     return slides
-        .filter(s => s.type === 'youtube')
-        .map(s => getYouTubeId(s.url))
+        .filter(s => s.type === 'youtube' && s.url)
+        .map(s => getYouTubeId(s.url!))
         .filter((id): id is string => id !== null)
 }
 
 function getUploadedVideos(slides: Slide[]): string[] {
-    return slides.filter(s => s.type === 'video').map(s => s.url)
+    return slides.filter(s => s.type === 'video' && s.url).map(s => s.url!)
 }
 
 // hqdefault.jpg (480x360) is guaranteed to exist for any video but looks
@@ -149,7 +152,10 @@ export default function TVPlayer({
     const ytPlayer = useRef<any>(null)
     const [slides, setSlides] = useState(initialSlides)
     const [ready, setReady] = useState(false)
-    const [currentType, setCurrentType] = useState<'youtube' | 'video' | null>(null)
+    const [currentType, setCurrentType] = useState<'youtube' | 'video' | 'design' | null>(null)
+    const currentTypeRef = useRef(currentType)
+    useEffect(() => { currentTypeRef.current = currentType }, [currentType])
+    const designTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
     const [started, setStarted] = useState(false)
     const [isFullscreen, setIsFullscreen] = useState(false)
     const currentIndex = useRef(0)
@@ -159,6 +165,7 @@ export default function TVPlayer({
     const triedCacheFallback = useRef(false)
     const lastObjectUrl = useRef<string | null>(null)
     const handleVideoErrorRef = useRef<() => void>(() => {})
+    const advanceSlideRef = useRef<() => void>(() => {})
 
     const [scheduleMode, setScheduleMode] = useState<ScheduleMode>(initialScheduleMode ?? 'inherit')
     const [schedule, setSchedule] = useState<WeekSchedule | null>(initialSchedule ?? null)
@@ -169,6 +176,8 @@ export default function TVPlayer({
     const isOpenRef = useRef(isOpen)
     useEffect(() => { isOpenRef.current = isOpen }, [isOpen])
     const [orgStatus, setOrgStatus] = useState(initialOrgStatus ?? 'active')
+    const orgStatusRef = useRef(orgStatus)
+    useEffect(() => { orgStatusRef.current = orgStatus }, [orgStatus])
     const [isOnline, setIsOnline] = useState(() => typeof navigator === 'undefined' || navigator.onLine)
     const [resolvedThumbs, setResolvedThumbs] = useState<Record<string, string>>({})
 
@@ -184,12 +193,21 @@ export default function TVPlayer({
         currentIndex.current = safeIndex
         setCurrentType(slide.type)
 
-        if (slide.type === 'youtube') {
+        // Clear any pending design-slide auto-advance timer regardless of
+        // the new slide's type — otherwise a stale timer from a previous
+        // design slide could fire later and cause a double-advance after
+        // the slide has already moved on some other way
+        if (designTimer.current) {
+            clearTimeout(designTimer.current)
+            designTimer.current = null
+        }
+
+        if (slide.type === 'youtube' && slide.url) {
             const videoId = getYouTubeId(slide.url)
             if (videoId && ytPlayer.current) {
                 ytPlayer.current.loadVideoById(videoId)
             }
-        } else if (slide.type === 'video') {
+        } else if (slide.type === 'video' && slide.url) {
             if (videoRef.current) {
                 triedCacheFallback.current = false
                 videoRef.current.src = slide.url
@@ -197,6 +215,18 @@ export default function TVPlayer({
                     handleVideoErrorRef.current()
                 })
             }
+        } else if (slide.type === 'design') {
+            // No natural "ended" event like video has — advance on a timer
+            // instead, using the duration set in the design editor
+            const seconds = slide.duration ?? DEFAULT_DURATION_SECONDS
+            designTimer.current = setTimeout(() => {
+                // Don't silently advance in the background while the
+                // screen is showing black (closed for hours / disabled) —
+                // the resume-from-close/disable effects below restart this
+                // timer when playback actually resumes
+                if (!isOpenRef.current || orgStatusRef.current === 'disabled') return
+                advanceSlideRef.current()
+            }, seconds * 1000)
         }
     }, [])
 
@@ -207,13 +237,15 @@ export default function TVPlayer({
         })
     }, [playSlideIndex])
 
+    useEffect(() => { advanceSlideRef.current = advanceSlide }, [advanceSlide])
+
     // On a load/playback error, try the cached copy (if we have one) before
     // giving up and skipping to the next slide — this is what actually
     // survives a brief network blip mid-loop.
     const handleVideoError = useCallback(async () => {
         const slide = slidesRef.current[currentIndex.current]
 
-        if (triedCacheFallback.current || !slide || slide.type !== 'video' || !videoRef.current) {
+        if (triedCacheFallback.current || !slide || slide.type !== 'video' || !slide.url || !videoRef.current) {
             advanceSlide()
             return
         }
@@ -272,7 +304,7 @@ export default function TVPlayer({
     useEffect(() => {
         let cancelled = false
         const ids = Array.from(new Set(
-            slides.filter((s) => s.type === 'youtube').map((s) => getYouTubeId(s.url)).filter((id): id is string => id !== null)
+            slides.filter((s) => s.type === 'youtube' && s.url).map((s) => getYouTubeId(s.url!)).filter((id): id is string => id !== null)
         ))
 
         ;(async () => {
@@ -308,10 +340,14 @@ export default function TVPlayer({
             videoRef.current?.pause()
             ytPlayer.current?.pauseVideo?.()
         } else if (started) {
-            videoRef.current?.play().catch(() => {})
-            ytPlayer.current?.playVideo?.()
+            if (currentTypeRef.current === 'design') {
+                playSlideIndex(currentIndex.current, slidesRef.current)
+            } else {
+                videoRef.current?.play().catch(() => {})
+                ytPlayer.current?.playVideo?.()
+            }
         }
-    }, [isOpen, started])
+    }, [isOpen, started, playSlideIndex])
 
     // Pause playback if the org gets disabled mid-session (non-payment
     // after the free trial), matches the pause-on-close behavior above
@@ -324,10 +360,14 @@ export default function TVPlayer({
             videoRef.current?.pause()
             ytPlayer.current?.pauseVideo?.()
         } else if (started && isOpen) {
-            videoRef.current?.play().catch(() => {})
-            ytPlayer.current?.playVideo?.()
+            if (currentTypeRef.current === 'design') {
+                playSlideIndex(currentIndex.current, slidesRef.current)
+            } else {
+                videoRef.current?.play().catch(() => {})
+                ytPlayer.current?.playVideo?.()
+            }
         }
-    }, [orgStatus, started, isOpen])
+    }, [orgStatus, started, isOpen, playSlideIndex])
 
     // Track connectivity via the browser's native online/offline signal —
     // this is what actually detects the outage for YouTube slides, since
@@ -339,7 +379,7 @@ export default function TVPlayer({
         const goOnline = () => {
             setIsOnline(true)
             const slide = slidesRef.current[currentIndex.current]
-            if (slide?.type === 'youtube') {
+            if (slide?.type === 'youtube' && slide.url) {
                 const videoId = getYouTubeId(slide.url)
                 if (videoId && ytPlayer.current?.loadVideoById) {
                     ytPlayer.current.loadVideoById(videoId)
@@ -512,19 +552,67 @@ export default function TVPlayer({
 
     // --- Player ---
     const currentSlide = slides[currentIndex.current]
-    const currentYouTubeId = currentType === 'youtube' && currentSlide ? getYouTubeId(currentSlide.url) : null
+    const currentYouTubeId = currentType === 'youtube' && currentSlide?.url ? getYouTubeId(currentSlide.url) : null
     const showOfflineFallback = !isOnline && currentType === 'youtube' && currentYouTubeId
 
     return (
         <div ref={containerRef} className="fixed inset-0 bg-black">
-            <div ref={playerRef} className={`w-full h-full ${currentType === 'video' ? 'hidden' : ''}`} />
+            <div ref={playerRef} className={`w-full h-full ${currentType === 'video' || currentType === 'design' ? 'hidden' : ''}`} />
             <video
                 ref={videoRef}
-                className={`fixed inset-0 w-full h-full object-contain ${currentType === 'youtube' ? 'hidden' : ''}`}
+                className={`fixed inset-0 w-full h-full object-contain ${currentType === 'youtube' || currentType === 'design' ? 'hidden' : ''}`}
                 muted
                 onEnded={advanceSlide}
                 onError={handleVideoError}
             />
+
+            {/* Homegrown design slide — rendered live from structured data,
+                not a pre-rendered video. Same percentage-based scaling math
+                as the design editor, so what you see there matches what
+                plays here exactly. */}
+            {currentType === 'design' && currentSlide?.design && (
+                <div
+                    className="fixed inset-0"
+                    style={{
+                        background: currentSlide.design.background.type === 'color' ? currentSlide.design.background.value : undefined,
+                        backgroundImage: currentSlide.design.background.type === 'image' ? `url(${currentSlide.design.background.url})` : undefined,
+                        backgroundSize: 'cover',
+                        backgroundPosition: 'center',
+                        containerType: 'size',
+                    } as React.CSSProperties}
+                >
+                    {currentSlide.design.elements.map((el) => {
+                        const style: React.CSSProperties = {
+                            position: 'absolute',
+                            left: `${(el.x / CANVAS_WIDTH) * 100}%`,
+                            top: `${(el.y / CANVAS_HEIGHT) * 100}%`,
+                            width: `${(el.width / CANVAS_WIDTH) * 100}%`,
+                            height: `${(el.height / CANVAS_HEIGHT) * 100}%`,
+                        }
+                        if (el.kind === 'text') {
+                            return (
+                                <div
+                                    key={el.id}
+                                    style={{
+                                        ...style,
+                                        fontSize: `${(el.fontSize / CANVAS_HEIGHT) * 100}cqh`,
+                                        color: el.color,
+                                        fontWeight: el.bold ? 700 : 400,
+                                        textAlign: el.align,
+                                        whiteSpace: 'pre-wrap',
+                                    } as React.CSSProperties}
+                                >
+                                    {el.text}
+                                </div>
+                            )
+                        }
+                        if (el.kind === 'image') {
+                            return <img key={el.id} src={el.url} alt="" style={style} className="object-cover" />
+                        }
+                        return <div key={el.id} style={{ ...style, background: el.color }} />
+                    })}
+                </div>
+            )}
 
             {/* YouTube can't play offline (streams live from YouTube's own
                 servers) — show YouTube's best available thumbnail instead

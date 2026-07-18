@@ -1,7 +1,15 @@
 import { redirect, notFound } from 'next/navigation'
 import { createClient } from '@/lib/supabase/server'
 import { resolveOrgId } from '@/lib/org'
+import { emptyDesign, type DesignData } from '@/lib/design'
 import ScreenEditor from './screen-editor'
+
+type Slide = {
+    url?: string
+    type: 'youtube' | 'video' | 'design'
+    design?: DesignData
+    duration?: number
+}
 
 export const dynamic = 'force-dynamic'
 
@@ -33,13 +41,19 @@ export default async function ScreenPage({ params }: { params: Promise<{ id: str
 
     if (!screen) notFound()
 
-    const slides = Array.isArray(screen.slides)
+    const slides: Slide[] = Array.isArray(screen.slides)
         ? screen.slides.map((slide: unknown) => {
-            if (typeof slide === 'object' && slide !== null && 'url' in slide && 'type' in slide) {
-                return slide as { url: string; type: 'youtube' | 'video' }
-            }
             if (typeof slide === 'string') {
                 return { url: slide, type: 'youtube' as const }
+            }
+            if (typeof slide === 'object' && slide !== null && 'type' in slide) {
+                const s = slide as Slide
+                if (s.type === 'design') {
+                    return { type: 'design' as const, design: s.design ?? emptyDesign(), duration: s.duration }
+                }
+                if ('url' in s) {
+                    return s
+                }
             }
             return { url: '', type: 'youtube' as const }
         })

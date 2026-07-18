@@ -228,7 +228,7 @@ export default async function DashboardPage() {
                                             )}
                                             {status === 'online' && screen.is_open && (
                                                 <span className="text-zinc-500">
-                                                    Online{currentSlide ? ` · Playing ${screen.current_slide_index + 1}/${slideCount} (${currentSlide.type === 'youtube' ? 'YouTube' : 'Uploaded'})` : ''}
+                                                    Online{currentSlide ? ` · Playing ${screen.current_slide_index + 1}/${slideCount} (${currentSlide.type === 'youtube' ? 'YouTube' : currentSlide.type === 'design' ? 'Design' : 'Uploaded'})` : ''}
                                                 </span>
                                             )}
                                             {status === 'offline' && (
