@@ -46,10 +46,13 @@ function getUploadedVideos(slides: Slide[]): string[] {
 // the browser's Cache Storage as they're seen, then fall back to the
 // cached copy if a network fetch fails (e.g. wifi drops mid-loop). This
 // only covers uploaded videos — YouTube slides stream live from YouTube's
-// own servers and can never work offline, no way around that. Also only
-// helps while this page stays loaded; a full reload during an outage
-// would still fail, since the page itself is server-rendered — that's a
-// bigger, separate effort (a real offline-capable PWA) for v2.
+// own servers and can never work offline, no way around that.
+//
+// Surviving a full page reload/restart during an outage (not just a
+// mid-session blip) is handled separately by the service worker
+// registered below (public/sw.js, scoped to /tv/*) — it network-first
+// caches the page shell and content poll so a reload can still render
+// from the last successful load even with zero connectivity.
 const MEDIA_CACHE_NAME = 'displaydesk-media-v1'
 
 async function getMediaCache(): Promise<Cache | null> {
@@ -349,6 +352,14 @@ export default function TVPlayer({
         const interval = setInterval(poll, 60_000)
         return () => clearInterval(interval)
     }, [pin])
+
+    // Register the offline-capable service worker, scoped narrowly to
+    // /tv/ so it never touches the admin dashboard on a shared device
+    useEffect(() => {
+        if ('serviceWorker' in navigator) {
+            navigator.serviceWorker.register('/sw.js', { scope: '/tv/' }).catch(() => {})
+        }
+    }, [])
 
     // Bootstrap YouTube IFrame API once
     useEffect(() => {
