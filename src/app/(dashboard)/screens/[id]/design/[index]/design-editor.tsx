@@ -33,6 +33,93 @@ type Slide = {
 
 type SavedTemplate = { id: string; name: string; design: DesignData }
 
+// Miniature, non-interactive render of a design's elements, scaled to fit
+// whatever box it's placed in — used so the template picker shows what a
+// layout actually looks like instead of just its background color.
+function DesignThumbnail({ design }: { design: DesignData }) {
+    return (
+        <div
+            className="relative w-full aspect-video rounded-lg overflow-hidden"
+            style={{
+                background: design.background.type === 'color' ? design.background.value : '#27272a',
+                backgroundImage: design.background.type === 'image' ? `url(${design.background.url})` : undefined,
+                backgroundSize: 'cover',
+                backgroundPosition: 'center',
+                containerType: 'size',
+            } as React.CSSProperties}
+        >
+            {design.elements.map((el) => {
+                const style: React.CSSProperties = {
+                    position: 'absolute',
+                    left: `${(el.x / CANVAS_WIDTH) * 100}%`,
+                    top: `${(el.y / CANVAS_HEIGHT) * 100}%`,
+                    width: `${(el.width / CANVAS_WIDTH) * 100}%`,
+                    height: `${(el.height / CANVAS_HEIGHT) * 100}%`,
+                    overflow: 'hidden',
+                }
+                if (el.kind === 'text') {
+                    return (
+                        <div
+                            key={el.id}
+                            style={{
+                                ...style,
+                                fontSize: `${(el.fontSize / CANVAS_HEIGHT) * 100}cqh`,
+                                color: el.color,
+                                fontWeight: el.bold ? 700 : 400,
+                                textAlign: el.align,
+                                whiteSpace: 'pre-wrap',
+                                lineHeight: 1.1,
+                            } as React.CSSProperties}
+                        >
+                            {el.text}
+                        </div>
+                    )
+                }
+                if (el.kind === 'image') {
+                    const urls = imageUrls(el)
+                    return urls.length > 0 ? (
+                        <img key={el.id} src={urls[0]} alt="" style={style} className="object-cover" />
+                    ) : null
+                }
+                if (el.kind === 'table') {
+                    return (
+                        <table
+                            key={el.id}
+                            style={{
+                                ...style,
+                                borderCollapse: 'collapse',
+                                fontSize: `${(el.fontSize / CANVAS_HEIGHT) * 100}cqh`,
+                                color: el.color,
+                            } as React.CSSProperties}
+                        >
+                            <tbody>
+                                {el.rows.map((row, r) => (
+                                    <tr key={r}>
+                                        {row.map((cell, c) => (
+                                            <td
+                                                key={c}
+                                                style={{
+                                                    border: `1px solid ${el.borderColor}`,
+                                                    padding: '0.2cqh 0.4cqw',
+                                                    fontWeight: r === 0 && el.headerRow ? 700 : 400,
+                                                    whiteSpace: 'nowrap',
+                                                } as React.CSSProperties}
+                                            >
+                                                {cell}
+                                            </td>
+                                        ))}
+                                    </tr>
+                                ))}
+                            </tbody>
+                        </table>
+                    )
+                }
+                return <div key={el.id} style={{ ...style, background: el.color }} />
+            })}
+        </div>
+    )
+}
+
 export default function DesignEditor({
     screenId,
     orgId,
@@ -330,12 +417,9 @@ export default function DesignEditor({
                                     onClick={() => applyTemplate(t.design)}
                                     className="border border-zinc-200 rounded-xl p-3 text-left hover:border-zinc-400 transition-colors"
                                 >
-                                    <div
-                                        className="w-full aspect-video rounded-lg mb-2"
-                                        style={{
-                                            background: t.design.background.type === 'color' ? t.design.background.value : '#27272a',
-                                        }}
-                                    />
+                                    <div className="mb-2">
+                                        <DesignThumbnail design={t.design} />
+                                    </div>
                                     <p className="text-xs font-medium text-zinc-700">{t.name}</p>
                                 </button>
                             ))}
@@ -351,12 +435,9 @@ export default function DesignEditor({
                                             onClick={() => applyTemplate(t.design)}
                                             className="border border-zinc-200 rounded-xl p-3 text-left hover:border-zinc-400 transition-colors"
                                         >
-                                            <div
-                                                className="w-full aspect-video rounded-lg mb-2"
-                                                style={{
-                                                    background: t.design.background.type === 'color' ? t.design.background.value : '#27272a',
-                                                }}
-                                            />
+                                            <div className="mb-2">
+                                                <DesignThumbnail design={t.design} />
+                                            </div>
                                             <p className="text-xs font-medium text-zinc-700">{t.name}</p>
                                         </button>
                                     ))}
