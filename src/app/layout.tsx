@@ -2,12 +2,64 @@ import type { Metadata } from 'next'
 import { Geist } from 'next/font/google'
 import Script from 'next/script'
 import './globals.css'
+import { SITE_URL, SITE_NAME, SITE_TAGLINE, SITE_DESCRIPTION } from '@/lib/site'
 
 const geist = Geist({ subsets: ['latin'] })
 
 export const metadata: Metadata = {
-    title: 'DisplayDesk',
-    description: 'Digital signage for small businesses',
+    metadataBase: new URL(SITE_URL),
+    title: {
+        default: `${SITE_NAME} — ${SITE_TAGLINE}`,
+        template: `%s — ${SITE_NAME}`,
+    },
+    description: SITE_DESCRIPTION,
+    keywords: [
+        'digital menu board',
+        'digital signage software',
+        'restaurant menu board TV',
+        'cafe TV menu display',
+        'digital menu board for small business',
+        'TV signage app',
+        'replace paper menu board',
+        'YouTube TV menu board alternative',
+        'menu board design tool',
+    ],
+    applicationName: SITE_NAME,
+    authors: [{ name: SITE_NAME }],
+    alternates: { canonical: '/' },
+    openGraph: {
+        type: 'website',
+        url: SITE_URL,
+        siteName: SITE_NAME,
+        title: `${SITE_NAME} — ${SITE_TAGLINE}`,
+        description: SITE_DESCRIPTION,
+        images: [{ url: '/opengraph-image', width: 1200, height: 630 }],
+    },
+    twitter: {
+        card: 'summary_large_image',
+        title: `${SITE_NAME} — ${SITE_TAGLINE}`,
+        description: SITE_DESCRIPTION,
+        images: ['/opengraph-image'],
+    },
+    robots: {
+        index: true,
+        follow: true,
+        googleBot: { index: true, follow: true, 'max-image-preview': 'large' },
+    },
+    icons: {
+        icon: [{ url: '/icon.svg', type: 'image/svg+xml' }],
+    },
+}
+
+// Organization schema on every page — helps search engines and AI answer
+// engines (ChatGPT, Perplexity, Google AI Overviews) reliably identify who
+// DisplayDesk is when citing or summarizing the site.
+const organizationJsonLd = {
+    '@context': 'https://schema.org',
+    '@type': 'Organization',
+    name: SITE_NAME,
+    url: SITE_URL,
+    description: SITE_DESCRIPTION,
 }
 
 export default function RootLayout({
@@ -33,6 +85,9 @@ export default function RootLayout({
                 */}
                 <Script id="sw-register" strategy="beforeInteractive">
                     {`if ('serviceWorker' in navigator) { navigator.serviceWorker.register('/sw.js', { scope: '/tv/' }).catch(() => {}) }`}
+                </Script>
+                <Script id="org-jsonld" type="application/ld+json" strategy="beforeInteractive">
+                    {JSON.stringify(organizationJsonLd)}
                 </Script>
                 {children}
             </body>

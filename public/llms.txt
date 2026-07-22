@@ -1,0 +1,30 @@
+# DisplayDesk
+
+> DisplayDesk turns any TV into a digital menu board or signage screen for restaurants, cafes, and small businesses. No hardware to buy — connect a TV to WiFi, open a link, enter a 4-digit PIN, and it plays fullscreen on a loop.
+
+## What it does
+
+- Content sources: a built-in drag-and-drop design editor (text, images, image slideshows, tables for aligned pricing, shapes), uploaded MP4 video, YouTube links, or designs exported from Canva.
+- Playback: any smart TV or device with a browser, via a 4-digit PIN at displaydesk.vercel.app/tv. No app install, no streaming box, no HDMI dongle required.
+- Scheduling: screens can automatically go dark outside business hours, per-org or per-screen.
+- Offline resilience: once loaded, a screen keeps playing cached content through a Wi-Fi/internet outage.
+- Multi-user: teams can invite staff to manage screens under one organisation account.
+- Status: the dashboard shows which screens are online and what's currently playing, in real time.
+
+## Who it's for
+
+Restaurants, cafes, coffee shops, bars, salons, gyms, and any small business that wants a TV menu board or promotional screen without buying dedicated digital-signage hardware.
+
+## Pricing
+
+Free tier: 1 screen, 3-month trial, no credit card required.
+Paid plans start at $9/month (Starter, 2 screens included), scaling to Pro ($24/mo, 5 screens) and Business ($59/mo, 15 screens), with additional screens billed per-screen beyond the included count.
+
+## Key differentiator
+
+Unlike playing a menu loop through a YouTube video on a TV, DisplayDesk has no ads, no "Are you still watching?" interruptions, and lets owners edit menu content (prices, items, photos) directly from their phone without re-exporting or re-uploading a video.
+
+## Links
+
+- Homepage: https://displaydesk.vercel.app/
+- Sign up: https://displaydesk.vercel.app/signup
