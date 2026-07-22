@@ -18,6 +18,13 @@ function rect(partial: Omit<Extract<DesignElement, { kind: 'rect' }>, 'id' | 'ki
     return { id: crypto.randomUUID(), kind: 'rect' as const, ...partial }
 }
 
+// Featured-photo regions ship as an empty slideshow (urls: []) with a
+// sensible default interval — the user drops in one or more photos and it
+// behaves as a multi-image slideshow immediately, no extra setup.
+function image(partial: Omit<Extract<DesignElement, { kind: 'image' }>, 'id' | 'kind' | 'urls' | 'intervalSeconds'> & { intervalSeconds?: number }) {
+    return { id: crypto.randomUUID(), kind: 'image' as const, urls: [], intervalSeconds: 5, ...partial }
+}
+
 // A curated library modeled on common restaurant/cafe menu board styles —
 // shown alongside a user's own saved templates when starting a new design
 // slide. Plain data, not stored in the database, so shipping new starter
@@ -273,6 +280,171 @@ export const STARTER_TEMPLATES: StarterTemplate[] = [
                         ['Veggie Boost', '$6.25'],
                     ],
                     fontSize: 30, color: '#f5ead9', borderColor: '#5a4636', headerRow: false,
+                }),
+            ],
+        },
+    },
+    {
+        id: 'coffee-tea-full-menu',
+        name: 'Coffee & Tea Full Menu',
+        design: {
+            background: { type: 'color', value: '#ffffff' },
+            elements: [
+                text({
+                    x: 40, y: 30, width: 900, height: 60,
+                    text: 'COFFEE', fontSize: 34, color: '#1a1a1a', bold: true, align: 'left',
+                }),
+                table({
+                    x: 40, y: 90, width: 900, height: 300,
+                    rows: [
+                        ['Item', 'Reg', 'Lrg'],
+                        ['Drip Coffee', '2.79', '3.59'],
+                        ['Espresso', '3.00', '3.79'],
+                        ['Americano', '3.99', '4.99'],
+                        ['Cafe Latte', '4.79', '5.79'],
+                        ['Flat White', '4.99', '5.99'],
+                        ['Cappuccino', '4.99', '5.99'],
+                        ['Caramel Macchiato', '5.79', '6.99'],
+                        ['Mocha', '5.99', '6.99'],
+                    ],
+                    fontSize: 20, color: '#1a1a1a', borderColor: '#e0e0e0', headerRow: true,
+                }),
+                text({
+                    x: 40, y: 410, width: 900, height: 50,
+                    text: 'TEA', fontSize: 30, color: '#1a1a1a', bold: true, align: 'left',
+                }),
+                table({
+                    x: 40, y: 460, width: 900, height: 220,
+                    rows: [
+                        ['Item', 'Reg', 'Lrg'],
+                        ['Regular Tea', '2.49', '2.79'],
+                        ['Speciality Tea', '3.59', '3.99'],
+                        ['Chai Latte', '5.29', '5.99'],
+                        ['Matcha Tea Latte', '5.99', '6.99'],
+                        ['Kashmiri Pink Chai', '5.99', '6.99'],
+                    ],
+                    fontSize: 20, color: '#1a1a1a', borderColor: '#e0e0e0', headerRow: true,
+                }),
+                text({
+                    x: 40, y: 700, width: 900, height: 50,
+                    text: 'OTHER', fontSize: 26, color: '#1a1a1a', bold: true, align: 'left',
+                }),
+                table({
+                    x: 40, y: 750, width: 900, height: 120,
+                    rows: [
+                        ['Apple Cider', '2.79', '3.59'],
+                        ['Hot Chocolate', '4.29', '5.29'],
+                    ],
+                    fontSize: 20, color: '#1a1a1a', borderColor: '#e0e0e0', headerRow: false,
+                }),
+                text({
+                    x: 1000, y: 30, width: 880, height: 60,
+                    text: 'ICED', fontSize: 34, color: '#1a1a1a', bold: true, align: 'left',
+                }),
+                table({
+                    x: 1000, y: 90, width: 880, height: 900,
+                    rows: [
+                        ['Item', 'Reg', 'Lrg'],
+                        ['Peach Iced Tea', '4.99', '5.99'],
+                        ['Huckleberry Special Iced Coffee', '4.99', '5.99'],
+                        ['Strawberry Lemonade', '4.99', '5.99'],
+                        ['Iced Americano', '4.99', '5.59'],
+                        ['Cold Brew', '4.99', '5.59'],
+                        ['Iced Chocolate', '5.29', '6.29'],
+                        ['Iced Latte w/Sweet Foam', '5.79', '6.29'],
+                        ['Iced Chai Latte', '5.79', '6.29'],
+                        ['Matcha Lemonade', '6.29', '7.79'],
+                        ['Iced Matcha Latte', '6.29', '7.29'],
+                        ['Dragonfruit & Lime Refresher', '6.49', '7.99'],
+                        ['Iced Kashmiri Pink Chai', '6.99', '8.49'],
+                        ['Shaken Brown Sugar Latte', '6.99', '7.99'],
+                        ['Mango/Strawberry Matcha', '7.59', '8.59'],
+                        ['Coconut Coffee/Matcha Cream', '7.99', '8.99'],
+                    ],
+                    fontSize: 18, color: '#1a1a1a', borderColor: '#e0e0e0', headerRow: true,
+                }),
+                text({
+                    x: 0, y: CANVAS_HEIGHT - 50, width: CANVAS_WIDTH, height: 40,
+                    text: 'Large size available +$1.00', fontSize: 22, color: '#1a1a1a', bold: true, align: 'center',
+                }),
+            ],
+        },
+    },
+    {
+        id: 'specials-board',
+        name: 'Specials Board (with photo)',
+        design: {
+            background: { type: 'color', value: '#ffffff' },
+            elements: [
+                rect({ x: 0, y: 0, width: 1280, height: 130, color: '#d4d4d4' }),
+                text({
+                    x: 40, y: 25, width: 700, height: 80,
+                    text: 'JULY SPECIALS', fontSize: 46, color: '#1a1a2e', bold: true, align: 'left',
+                }),
+                text({
+                    x: 780, y: 45, width: 200, height: 40,
+                    text: 'HOT', fontSize: 22, color: '#1a1a2e', bold: true, align: 'center',
+                }),
+                text({
+                    x: 1000, y: 45, width: 200, height: 40,
+                    text: 'ICED', fontSize: 22, color: '#1a1a2e', bold: true, align: 'center',
+                }),
+                table({
+                    x: 40, y: 160, width: 1200, height: 880,
+                    rows: [
+                        ['Lavender Lemonade\nFloral lavender meets tart lemonade over ice', '—', '$5.99'],
+                        ['Strawberry White Mocha\nEspresso, white chocolate, sweet strawberry', '$5.99', '$6.99'],
+                        ['Watermelon Cucumber Mint Refresher\nJuicy watermelon, crisp cucumber, cool mint', '—', '$6.99'],
+                        ['Vanilla Chai Latte\nSpiced chai and sweet vanilla, hot or iced', '$6.29', '$6.99'],
+                        ['Chocolate Matcha Cloud\nRich chocolate topped with a matcha foam', '—', '$7.99'],
+                    ],
+                    fontSize: 20, color: '#1a1a2e', borderColor: '#dcdcdc', headerRow: false,
+                }),
+                text({
+                    x: 40, y: CANVAS_HEIGHT - 60, width: 1200, height: 40,
+                    text: 'Large size available +$1.00', fontSize: 22, color: '#1a1a1a', bold: true, align: 'center',
+                }),
+                // Featured photo — drop in one or more images and it cycles
+                // automatically as a slideshow.
+                image({ x: 1280, y: 0, width: CANVAS_WIDTH - 1280, height: CANVAS_HEIGHT }),
+                rect({ x: 1280, y: CANVAS_HEIGHT - 140, width: CANVAS_WIDTH - 1280, height: 140, color: '#000000aa' }),
+                text({
+                    x: 1310, y: CANVAS_HEIGHT - 100, width: 580, height: 80,
+                    text: 'LAVENDER LEMONADE', fontSize: 30, color: '#ffffff', bold: true, align: 'left',
+                }),
+            ],
+        },
+    },
+    {
+        id: 'sandwiches-soup',
+        name: 'Sandwiches & Soup (with photo)',
+        design: {
+            background: { type: 'color', value: '#ffffff' },
+            elements: [
+                table({
+                    x: 40, y: 40, width: 1180, height: 1000,
+                    rows: [
+                        ['Soup of the Day\nWith Garlic Bread', '$9.99'],
+                        ['Breakfast Sandwich\nEgg patty, Provolone, Tomato, Guacamole, Creamy spread', '$6.99'],
+                        ['Dill Infused Egg Salad\nSignature Egg Salad, Greens', '$10.99'],
+                        ['Pesto Turkey\nGreens, Tomato, Sun-dried tomato aioli, Boursin, Basil pesto', '$11.49'],
+                        ['Ham & Swiss\nCreamy Mustard, Microgreens, Tomatoes, Crispy Onion', '$11.49'],
+                        ['Vegan Goddess\nBean fluff, Greens, Vegan sun-dried tomato aioli', '$11.99'],
+                        ['Roast Beef\nGreens, Fried onions, Horseradish mayo, Provolone, Mustard', '$12.99'],
+                    ],
+                    fontSize: 20, color: '#1a1a2e', borderColor: '#dcdcdc', headerRow: false,
+                }),
+                text({
+                    x: 40, y: CANVAS_HEIGHT - 60, width: 1180, height: 40,
+                    text: 'Gluten free bread available', fontSize: 20, color: '#1a1a1a', bold: false, align: 'center',
+                }),
+                // Featured photo — drop in one or more images and it cycles
+                // automatically as a slideshow.
+                image({ x: 1220, y: 0, width: CANVAS_WIDTH - 1220, height: CANVAS_HEIGHT }),
+                rect({ x: 1220, y: CANVAS_HEIGHT - 140, width: CANVAS_WIDTH - 1220, height: 140, color: '#000000aa' }),
+                text({
+                    x: 1250, y: CANVAS_HEIGHT - 100, width: 620, height: 80,
+                    text: 'SALTED MAPLE CINNAMON BUN', fontSize: 26, color: '#ffffff', bold: true, align: 'left',
                 }),
             ],
         },

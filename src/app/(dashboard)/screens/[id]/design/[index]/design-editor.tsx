@@ -837,6 +837,7 @@ export default function DesignEditor({
                                                             style={{
                                                                 border: `1px solid ${el.borderColor}`,
                                                                 fontWeight: r === 0 && el.headerRow ? 700 : 400,
+                                                                whiteSpace: 'pre-wrap',
                                                             }}
                                                         >
                                                             {cell}

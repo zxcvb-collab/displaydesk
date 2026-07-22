@@ -651,6 +651,7 @@ export default function TVPlayer({
                                                             border: `1px solid ${el.borderColor}`,
                                                             padding: '0.3cqh 0.6cqw',
                                                             fontWeight: r === 0 && el.headerRow ? 700 : 400,
+                                                            whiteSpace: 'pre-wrap',
                                                         } as React.CSSProperties}
                                                     >
                                                         {cell}
