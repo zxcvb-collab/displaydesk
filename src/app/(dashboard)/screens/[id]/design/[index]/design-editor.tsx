@@ -167,6 +167,17 @@ export default function DesignEditor({
 
     const selected = design.elements.find((e) => e.id === selectedId) ?? null
 
+    // If any image element is a multi-image slideshow, the slide's overall
+    // duration should be at least long enough for one full cycle through
+    // it — otherwise the slide advances before every image has had a turn.
+    const slideshowTotalSeconds = design.elements.reduce((max, el) => {
+        if (el.kind !== 'image') return max
+        const urls = imageUrls(el)
+        if (urls.length <= 1) return max
+        const total = urls.length * (el.intervalSeconds || DEFAULT_IMAGE_INTERVAL_SECONDS)
+        return Math.max(max, total)
+    }, 0)
+
     function updateElement(id: string, patch: Partial<DesignElement>) {
         setDesign((d) => ({
             ...d,
@@ -354,6 +365,12 @@ export default function DesignEditor({
     // --- Save: fetch current slides fresh (this page doesn't share state
     // with the main screen editor), splice in this design at slideIndex ---
     async function save() {
+        if (slideshowTotalSeconds > duration) {
+            const proceed = window.confirm(
+                `This slide's image slideshow takes ${slideshowTotalSeconds}s to cycle through, but the slide duration is only ${duration}s — some images won't get shown. Save anyway?`
+            )
+            if (!proceed) return
+        }
         setSaving(true)
         setError('')
         try {
@@ -706,6 +723,21 @@ export default function DesignEditor({
                         onChange={(e) => setDuration(Math.max(2, Number(e.target.value) || 8))}
                         className="w-full px-2 py-1.5 border border-zinc-300 rounded-lg text-sm"
                     />
+                    {slideshowTotalSeconds > duration && (
+                        <div className="mt-2 bg-amber-50 border border-amber-200 rounded-lg p-2.5">
+                            <p className="text-xs text-amber-800 mb-1.5">
+                                This slide has an image slideshow that takes {slideshowTotalSeconds}s to cycle
+                                through, longer than the {duration}s slide duration — some images may never show.
+                            </p>
+                            <Button
+                                variant="outline"
+                                size="xs"
+                                onClick={() => setDuration(slideshowTotalSeconds)}
+                            >
+                                Match duration to {slideshowTotalSeconds}s
+                            </Button>
+                        </div>
+                    )}
                 </div>
 
                 {error && <p className="text-sm text-red-600">{error}</p>}
