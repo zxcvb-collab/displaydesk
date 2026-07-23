@@ -16,6 +16,10 @@ export const CANVAS_HEIGHT = 1080
 export const DEFAULT_DURATION_SECONDS = 8
 export const DEFAULT_IMAGE_INTERVAL_SECONDS = 5
 
+// 90-degree steps only — this keeps resize math a simple axis swap
+// instead of needing a full trig-based transform system.
+export type Rotation = 0 | 90 | 180 | 270
+
 export type TextElement = {
     id: string
     kind: 'text'
@@ -23,6 +27,7 @@ export type TextElement = {
     y: number
     width: number
     height: number
+    rotation?: Rotation
     text: string
     fontSize: number
     color: string
@@ -40,6 +45,7 @@ export type ImageElement = {
     y: number
     width: number
     height: number
+    rotation?: Rotation
     urls: string[]
     intervalSeconds: number
     /** @deprecated old single-image shape, kept only for reading designs saved before the slideshow feature */
@@ -53,8 +59,11 @@ export type RectElement = {
     y: number
     width: number
     height: number
+    rotation?: Rotation
     color: string
 }
+
+export type TableMerge = { row: number; col: number; colspan: number }
 
 export type TableElement = {
     id: string
@@ -63,11 +72,16 @@ export type TableElement = {
     y: number
     width: number
     height: number
+    rotation?: Rotation
     rows: string[][]
     fontSize: number
     color: string
     borderColor: string
     headerRow: boolean
+    /** Per-column pill/badge styling — index matches column index; a color string enables a badge in that column, null/undefined leaves it plain. Empty cells never get a badge. */
+    columnBadges?: (string | null)[]
+    /** Colspan-only cell merges. A covered (non-anchor) cell is skipped on render. */
+    merges?: TableMerge[]
 }
 
 export type DesignElement = TextElement | ImageElement | RectElement | TableElement
@@ -99,6 +113,7 @@ export function newTextElement(): TextElement {
         y: 460,
         width: 800,
         height: 160,
+        rotation: 0,
         text: 'Double-click to edit',
         fontSize: 64,
         color: '#ffffff',
@@ -115,6 +130,7 @@ export function newRectElement(): RectElement {
         y: 440,
         width: 600,
         height: 200,
+        rotation: 0,
         color: '#27272a',
     }
 }
@@ -127,6 +143,7 @@ export function newImageElement(urls: string[]): ImageElement {
         y: 340,
         width: 800,
         height: 450,
+        rotation: 0,
         urls,
         intervalSeconds: DEFAULT_IMAGE_INTERVAL_SECONDS,
     }
@@ -140,6 +157,7 @@ export function newTableElement(): TableElement {
         y: 300,
         width: 1000,
         height: 480,
+        rotation: 0,
         rows: [
             ['Item', 'Price'],
             ['Latte', '$4.50'],
@@ -150,7 +168,67 @@ export function newTableElement(): TableElement {
         color: '#ffffff',
         borderColor: '#52525b',
         headerRow: true,
+        columnBadges: [null, null],
+        merges: [],
     }
+}
+
+// Bundles a photo region with a bottom scrim and a caption as three
+// independent elements (image, rect, text) — pre-positioned as a set so
+// there's no manual alignment step, but each stays freely movable/
+// resizable afterward, including moving the caption off the photo.
+export function newPhotoWithCaptionSet(): DesignElement[] {
+    const x = 560, y = 140, width = 800, height = 650
+    const scrimHeight = 140
+    const image: ImageElement = {
+        id: crypto.randomUUID(), kind: 'image',
+        x, y, width, height, rotation: 0,
+        urls: [], intervalSeconds: DEFAULT_IMAGE_INTERVAL_SECONDS,
+    }
+    const scrim: RectElement = {
+        id: crypto.randomUUID(), kind: 'rect',
+        x, y: y + height - scrimHeight, width, height: scrimHeight, rotation: 0,
+        color: '#000000aa',
+    }
+    const caption: TextElement = {
+        id: crypto.randomUUID(), kind: 'text',
+        x: x + 24, y: y + height - scrimHeight + 30, width: width - 48, height: scrimHeight - 60, rotation: 0,
+        text: 'Caption', fontSize: 32, color: '#ffffff', bold: true, align: 'left',
+    }
+    return [image, scrim, caption]
+}
+
+// Converts a mouse-drag delta (in the canvas's fixed screen frame) into
+// the element's own local width/height delta, accounting for the fact
+// that a rotated element's resize handle moves along with it visually
+// (it's a CSS transform on the element, so the handle rotates for free)
+// but dragging it still needs to grow/shrink the *local*, pre-rotation
+// box in the direction the handle now visually points.
+const ROT_COS: Record<Rotation, number> = { 0: 1, 90: 0, 180: -1, 270: 0 }
+const ROT_SIN: Record<Rotation, number> = { 0: 0, 90: 1, 180: 0, 270: -1 }
+export function rotatedResizeDelta(dx: number, dy: number, rotation: Rotation): { dw: number; dh: number } {
+    const cos = ROT_COS[rotation]
+    const sin = ROT_SIN[rotation]
+    return { dw: dx * cos + dy * sin, dh: -dx * sin + dy * cos }
+}
+
+// Table cell merge helpers — shared by the editor canvas, the editor's
+// property-panel cell grid, the TV player, and template thumbnails, so
+// merge/badge rendering stays identical everywhere it's drawn.
+export function findMergeAt(el: TableElement, row: number, col: number): TableMerge | undefined {
+    return (el.merges ?? []).find((m) => m.row === row && m.col === col)
+}
+
+export function isMergedAway(el: TableElement, row: number, col: number): boolean {
+    return (el.merges ?? []).some((m) => m.row === row && col > m.col && col < m.col + m.colspan)
+}
+
+export function columnBadgeColor(el: TableElement, col: number, cellText: string): string | null {
+    const color = el.columnBadges?.[col]
+    if (!color) return null
+    const trimmed = cellText.trim()
+    if (trimmed === '' || trimmed === '-' || trimmed === '—') return null
+    return color
 }
 
 // Regenerates every element ID in a design — used whenever a design is

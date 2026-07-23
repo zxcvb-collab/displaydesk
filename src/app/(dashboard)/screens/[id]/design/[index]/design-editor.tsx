@@ -13,13 +13,19 @@ import {
     newRectElement,
     newImageElement,
     newTableElement,
+    newPhotoWithCaptionSet,
     imageUrls,
     cloneDesignWithFreshIds,
+    findMergeAt,
+    isMergedAway,
+    columnBadgeColor,
+    rotatedResizeDelta,
     type DesignData,
     type DesignElement,
     type TextElement,
     type ImageElement,
     type TableElement,
+    type Rotation,
 } from '@/lib/design'
 import { STARTER_TEMPLATES } from '@/lib/design/starter-templates'
 
@@ -56,6 +62,7 @@ function DesignThumbnail({ design }: { design: DesignData }) {
                     width: `${(el.width / CANVAS_WIDTH) * 100}%`,
                     height: `${(el.height / CANVAS_HEIGHT) * 100}%`,
                     overflow: 'hidden',
+                    transform: el.rotation ? `rotate(${el.rotation}deg)` : undefined,
                 }
                 if (el.kind === 'text') {
                     return (
@@ -95,19 +102,24 @@ function DesignThumbnail({ design }: { design: DesignData }) {
                             <tbody>
                                 {el.rows.map((row, r) => (
                                     <tr key={r}>
-                                        {row.map((cell, c) => (
-                                            <td
-                                                key={c}
-                                                style={{
-                                                    border: `1px solid ${el.borderColor}`,
-                                                    padding: '0.2cqh 0.4cqw',
-                                                    fontWeight: r === 0 && el.headerRow ? 700 : 400,
-                                                    whiteSpace: 'nowrap',
-                                                } as React.CSSProperties}
-                                            >
-                                                {cell}
-                                            </td>
-                                        ))}
+                                        {row.map((cell, c) => {
+                                            if (isMergedAway(el, r, c)) return null
+                                            const merge = findMergeAt(el, r, c)
+                                            return (
+                                                <td
+                                                    key={c}
+                                                    colSpan={merge?.colspan ?? 1}
+                                                    style={{
+                                                        border: `1px solid ${el.borderColor}`,
+                                                        padding: '0.2cqh 0.4cqw',
+                                                        fontWeight: r === 0 && el.headerRow ? 700 : 400,
+                                                        whiteSpace: 'nowrap',
+                                                    } as React.CSSProperties}
+                                                >
+                                                    {cell}
+                                                </td>
+                                            )
+                                        })}
                                     </tr>
                                 ))}
                             </tbody>
@@ -157,6 +169,7 @@ export default function DesignEditor({
     const [templates, setTemplates] = useState<SavedTemplate[]>([])
     const [showTemplatePicker, setShowTemplatePicker] = useState(isNew && design.elements.length === 0)
     const [savingTemplate, setSavingTemplate] = useState(false)
+    const [tableSelection, setTableSelection] = useState<{ tableId: string; row: number; anchorCol: number; endCol: number } | null>(null)
 
     useEffect(() => {
         fetch('/api/design-templates')
@@ -237,7 +250,7 @@ export default function DesignEditor({
 
     // --- Drag & resize (pointer events, canvas-unit math via container rect) ---
     const dragState = useRef<{ id: string; startX: number; startY: number; origX: number; origY: number } | null>(null)
-    const resizeState = useRef<{ id: string; startX: number; startY: number; origW: number; origH: number } | null>(null)
+    const resizeState = useRef<{ id: string; startX: number; startY: number; origW: number; origH: number; rotation: Rotation } | null>(null)
 
     const onElementPointerDown = useCallback((e: React.PointerEvent, el: DesignElement) => {
         e.stopPropagation()
@@ -247,7 +260,7 @@ export default function DesignEditor({
 
     const onResizeHandlePointerDown = useCallback((e: React.PointerEvent, el: DesignElement) => {
         e.stopPropagation()
-        resizeState.current = { id: el.id, startX: e.clientX, startY: e.clientY, origW: el.width, origH: el.height }
+        resizeState.current = { id: el.id, startX: e.clientX, startY: e.clientY, origW: el.width, origH: el.height, rotation: el.rotation ?? 0 }
     }, [])
 
     useEffect(() => {
@@ -262,9 +275,10 @@ export default function DesignEditor({
                 updateElement(id, { x: Math.round(origX + dx), y: Math.round(origY + dy) })
             }
             if (resizeState.current) {
-                const { id, startX, startY, origW, origH } = resizeState.current
-                const dw = ((e.clientX - startX) / rect.width) * CANVAS_WIDTH
-                const dh = ((e.clientY - startY) / rect.height) * CANVAS_HEIGHT
+                const { id, startX, startY, origW, origH, rotation } = resizeState.current
+                const dxCanvas = ((e.clientX - startX) / rect.width) * CANVAS_WIDTH
+                const dyCanvas = ((e.clientY - startY) / rect.height) * CANVAS_HEIGHT
+                const { dw, dh } = rotatedResizeDelta(dxCanvas, dyCanvas, rotation)
                 updateElement(id, { width: Math.max(40, Math.round(origW + dw)), height: Math.max(40, Math.round(origH + dh)) })
             }
         }
@@ -355,11 +369,64 @@ export default function DesignEditor({
         updateElement(el.id, { rows: el.rows.slice(0, -1) })
     }
     function addTableColumn(el: TableElement) {
-        updateElement(el.id, { rows: el.rows.map((row) => [...row, '']) })
+        updateElement(el.id, {
+            rows: el.rows.map((row) => [...row, '']),
+            columnBadges: [...(el.columnBadges ?? []), null],
+        })
     }
     function removeTableColumn(el: TableElement) {
-        if ((el.rows[0]?.length ?? 0) <= 1) return
-        updateElement(el.id, { rows: el.rows.map((row) => row.slice(0, -1)) })
+        const cols = el.rows[0]?.length ?? 0
+        if (cols <= 1) return
+        const newCols = cols - 1
+        updateElement(el.id, {
+            rows: el.rows.map((row) => row.slice(0, -1)),
+            columnBadges: (el.columnBadges ?? []).slice(0, newCols),
+            merges: (el.merges ?? [])
+                .filter((m) => m.col < newCols)
+                .map((m) => ({ ...m, colspan: Math.min(m.colspan, newCols - m.col) })),
+        })
+    }
+    function setColumnBadge(el: TableElement, col: number, color: string | null) {
+        const cols = el.rows[0]?.length ?? 0
+        const badges = [...(el.columnBadges ?? [])]
+        while (badges.length < cols) badges.push(null)
+        badges[col] = color
+        updateElement(el.id, { columnBadges: badges })
+    }
+    function mergeSelectedCells(el: TableElement) {
+        if (!tableSelection || tableSelection.tableId !== el.id) return
+        const { row, anchorCol, endCol } = tableSelection
+        const fromCol = Math.min(anchorCol, endCol)
+        const toCol = Math.max(anchorCol, endCol)
+        if (toCol <= fromCol) return
+        const texts: string[] = []
+        for (let c = fromCol; c <= toCol; c++) {
+            if (!isMergedAway(el, row, c) && el.rows[row][c]) texts.push(el.rows[row][c])
+        }
+        const rows = el.rows.map((r, ri) =>
+            ri === row ? r.map((cell, ci) => (ci === fromCol ? texts.join(' ') : ci > fromCol && ci <= toCol ? '' : cell)) : r
+        )
+        const merges = (el.merges ?? []).filter((m) => {
+            if (m.row !== row) return true
+            const mEnd = m.col + m.colspan - 1
+            return mEnd < fromCol || m.col > toCol
+        })
+        updateElement(el.id, { rows, merges: [...merges, { row, col: fromCol, colspan: toCol - fromCol + 1 }] })
+        setTableSelection(null)
+    }
+    function unmergeCell(el: TableElement, row: number, col: number) {
+        updateElement(el.id, { merges: (el.merges ?? []).filter((m) => !(m.row === row && m.col === col)) })
+    }
+    function addPhotoWithCaption() {
+        const set = newPhotoWithCaptionSet()
+        setDesign((d) => ({ ...d, elements: [...d.elements, ...set] }))
+        setSelectedId(set[0].id)
+    }
+    function rotateSelected() {
+        if (!selected) return
+        const current = selected.rotation ?? 0
+        const next = ((current + 90) % 360) as Rotation
+        updateElement(selected.id, { rotation: next })
     }
 
     // --- Save: fetch current slides fresh (this page doesn't share state
@@ -504,6 +571,9 @@ export default function DesignEditor({
                         >
                             {uploadingImage ? 'Uploading…' : '+ Image(s)'}
                         </Button>
+                        <Button variant="outline" size="sm" className="w-full justify-start" onClick={addPhotoWithCaption}>
+                            + Photo w/ caption
+                        </Button>
                     </div>
                 </div>
 
@@ -549,6 +619,7 @@ export default function DesignEditor({
                         <div className="flex gap-2 mb-3">
                             <Button variant="outline" size="xs" onClick={() => moveLayer(-1)}>Send back</Button>
                             <Button variant="outline" size="xs" onClick={() => moveLayer(1)}>Bring forward</Button>
+                            <Button variant="outline" size="xs" onClick={rotateSelected}>Rotate 90°</Button>
                         </div>
 
                         {selected.kind === 'text' && (
@@ -665,17 +736,59 @@ export default function DesignEditor({
                                 <div className="space-y-1 max-h-64 overflow-y-auto">
                                     {selected.rows.map((row, r) => (
                                         <div key={r} className="flex gap-1">
-                                            {row.map((cell, c) => (
-                                                <input
-                                                    key={c}
-                                                    value={cell}
-                                                    onChange={(e) => updateTableCell(selected, r, c, e.target.value)}
-                                                    className={`w-full px-1.5 py-1 border rounded text-xs ${r === 0 && selected.headerRow ? 'font-semibold bg-zinc-50 border-zinc-300' : 'border-zinc-200'}`}
-                                                />
-                                            ))}
+                                            {row.map((cell, c) => {
+                                                if (isMergedAway(selected, r, c)) return null
+                                                const merge = findMergeAt(selected, r, c)
+                                                const isSelected =
+                                                    tableSelection?.tableId === selected.id &&
+                                                    tableSelection.row === r &&
+                                                    c >= Math.min(tableSelection.anchorCol, tableSelection.endCol) &&
+                                                    c <= Math.max(tableSelection.anchorCol, tableSelection.endCol)
+                                                return (
+                                                    <input
+                                                        key={c}
+                                                        value={cell}
+                                                        onChange={(e) => updateTableCell(selected, r, c, e.target.value)}
+                                                        onClick={(e) =>
+                                                            setTableSelection((sel) =>
+                                                                e.shiftKey && sel && sel.tableId === selected.id && sel.row === r
+                                                                    ? { ...sel, endCol: c }
+                                                                    : { tableId: selected.id, row: r, anchorCol: c, endCol: c }
+                                                            )
+                                                        }
+                                                        style={{ flexGrow: merge?.colspan ?? 1 }}
+                                                        className={`flex-1 px-1.5 py-1 border rounded text-xs ${r === 0 && selected.headerRow ? 'font-semibold bg-zinc-50 border-zinc-300' : 'border-zinc-200'} ${isSelected ? 'ring-2 ring-blue-400' : ''}`}
+                                                    />
+                                                )
+                                            })}
                                         </div>
                                     ))}
                                 </div>
+                                <div className="flex gap-2">
+                                    <Button
+                                        variant="outline"
+                                        size="xs"
+                                        disabled={!tableSelection || tableSelection.tableId !== selected.id || tableSelection.anchorCol === tableSelection.endCol}
+                                        onClick={() => mergeSelectedCells(selected)}
+                                    >
+                                        Merge cells
+                                    </Button>
+                                    <Button
+                                        variant="outline"
+                                        size="xs"
+                                        disabled={
+                                            !tableSelection ||
+                                            tableSelection.tableId !== selected.id ||
+                                            !findMergeAt(selected, tableSelection.row, Math.min(tableSelection.anchorCol, tableSelection.endCol))
+                                        }
+                                        onClick={() =>
+                                            tableSelection && unmergeCell(selected, tableSelection.row, Math.min(tableSelection.anchorCol, tableSelection.endCol))
+                                        }
+                                    >
+                                        Unmerge
+                                    </Button>
+                                </div>
+                                <p className="text-[11px] text-zinc-400">Click a cell, shift-click another in the same row to select a range.</p>
                                 <label className="flex items-center gap-2 text-xs text-zinc-500">
                                     <input
                                         type="checkbox"
@@ -684,6 +797,27 @@ export default function DesignEditor({
                                     />
                                     First row is a header
                                 </label>
+                                <div className="space-y-1">
+                                    <p className="text-xs text-zinc-500">Column price badges</p>
+                                    {(selected.rows[0] ?? []).map((_, c) => (
+                                        <div key={c} className="flex items-center gap-2">
+                                            <label className="text-xs text-zinc-500 w-16">Col {c + 1}</label>
+                                            <input
+                                                type="checkbox"
+                                                checked={!!selected.columnBadges?.[c]}
+                                                onChange={(e) => setColumnBadge(selected, c, e.target.checked ? '#3b82f6' : null)}
+                                            />
+                                            {selected.columnBadges?.[c] && (
+                                                <input
+                                                    type="color"
+                                                    value={selected.columnBadges[c] as string}
+                                                    onChange={(e) => setColumnBadge(selected, c, e.target.value)}
+                                                    className="w-7 h-7 rounded border border-zinc-200 cursor-pointer"
+                                                />
+                                            )}
+                                        </div>
+                                    ))}
+                                </div>
                                 <div className="flex items-center gap-2">
                                     <label className="text-xs text-zinc-500 w-16">Size</label>
                                     <input
@@ -773,6 +907,7 @@ export default function DesignEditor({
                             height: `${(el.height / CANVAS_HEIGHT) * 100}%`,
                             outline: selectedId === el.id ? '2px solid #3b82f6' : 'none',
                             cursor: 'move',
+                            transform: el.rotation ? `rotate(${el.rotation}deg)` : undefined,
                         }
 
                         return (
@@ -830,19 +965,31 @@ export default function DesignEditor({
                                         <tbody>
                                             {el.rows.map((row, r) => (
                                                 <tr key={r}>
-                                                    {row.map((cell, c) => (
-                                                        <td
-                                                            key={c}
-                                                            className="px-2 py-1"
-                                                            style={{
-                                                                border: `1px solid ${el.borderColor}`,
-                                                                fontWeight: r === 0 && el.headerRow ? 700 : 400,
-                                                                whiteSpace: 'pre-wrap',
-                                                            }}
-                                                        >
-                                                            {cell}
-                                                        </td>
-                                                    ))}
+                                                    {row.map((cell, c) => {
+                                                        if (isMergedAway(el, r, c)) return null
+                                                        const merge = findMergeAt(el, r, c)
+                                                        const badgeColor = columnBadgeColor(el, c, cell)
+                                                        return (
+                                                            <td
+                                                                key={c}
+                                                                colSpan={merge?.colspan ?? 1}
+                                                                className="px-2 py-1"
+                                                                style={{
+                                                                    border: `1px solid ${el.borderColor}`,
+                                                                    fontWeight: r === 0 && el.headerRow ? 700 : 400,
+                                                                    whiteSpace: 'pre-wrap',
+                                                                }}
+                                                            >
+                                                                {badgeColor ? (
+                                                                    <span style={{ display: 'inline-block', border: `2px solid ${badgeColor}`, borderRadius: 999, padding: '2px 12px' }}>
+                                                                        {cell}
+                                                                    </span>
+                                                                ) : (
+                                                                    cell
+                                                                )}
+                                                            </td>
+                                                        )
+                                                    })}
                                                 </tr>
                                             ))}
                                         </tbody>

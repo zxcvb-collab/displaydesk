@@ -392,13 +392,14 @@ export const STARTER_TEMPLATES: StarterTemplate[] = [
                 table({
                     x: 40, y: 160, width: 1200, height: 880,
                     rows: [
-                        ['Lavender Lemonade\nFloral lavender meets tart lemonade over ice', '—', '$5.99'],
+                        ['Lavender Lemonade\nFloral lavender meets tart lemonade over ice', '', '$5.99'],
                         ['Strawberry White Mocha\nEspresso, white chocolate, sweet strawberry', '$5.99', '$6.99'],
-                        ['Watermelon Cucumber Mint Refresher\nJuicy watermelon, crisp cucumber, cool mint', '—', '$6.99'],
+                        ['Watermelon Cucumber Mint Refresher\nJuicy watermelon, crisp cucumber, cool mint', '', '$6.99'],
                         ['Vanilla Chai Latte\nSpiced chai and sweet vanilla, hot or iced', '$6.29', '$6.99'],
-                        ['Chocolate Matcha Cloud\nRich chocolate topped with a matcha foam', '—', '$7.99'],
+                        ['Chocolate Matcha Cloud\nRich chocolate topped with a matcha foam', '', '$7.99'],
                     ],
                     fontSize: 20, color: '#1a1a2e', borderColor: '#dcdcdc', headerRow: false,
+                    columnBadges: [null, '#c9772f', '#2f6fc9'],
                 }),
                 text({
                     x: 40, y: CANVAS_HEIGHT - 60, width: 1200, height: 40,

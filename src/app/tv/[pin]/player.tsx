@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState, useCallback } from 'react'
 import { resolveEffectiveSchedule, isOpenNow, type ScheduleMode, type WeekSchedule } from '@/lib/schedule'
-import { CANVAS_WIDTH, CANVAS_HEIGHT, DEFAULT_DURATION_SECONDS, DEFAULT_IMAGE_INTERVAL_SECONDS, imageUrls, type DesignData, type ImageElement } from '@/lib/design'
+import { CANVAS_WIDTH, CANVAS_HEIGHT, DEFAULT_DURATION_SECONDS, DEFAULT_IMAGE_INTERVAL_SECONDS, imageUrls, findMergeAt, isMergedAway, columnBadgeColor, type DesignData, type ImageElement } from '@/lib/design'
 
 declare global {
     interface Window {
@@ -609,6 +609,7 @@ export default function TVPlayer({
                             top: `${(el.y / CANVAS_HEIGHT) * 100}%`,
                             width: `${(el.width / CANVAS_WIDTH) * 100}%`,
                             height: `${(el.height / CANVAS_HEIGHT) * 100}%`,
+                            transform: el.rotation ? `rotate(${el.rotation}deg)` : undefined,
                         }
                         if (el.kind === 'text') {
                             return (
@@ -644,19 +645,31 @@ export default function TVPlayer({
                                     <tbody>
                                         {el.rows.map((row, r) => (
                                             <tr key={r}>
-                                                {row.map((cell, c) => (
-                                                    <td
-                                                        key={c}
-                                                        style={{
-                                                            border: `1px solid ${el.borderColor}`,
-                                                            padding: '0.3cqh 0.6cqw',
-                                                            fontWeight: r === 0 && el.headerRow ? 700 : 400,
-                                                            whiteSpace: 'pre-wrap',
-                                                        } as React.CSSProperties}
-                                                    >
-                                                        {cell}
-                                                    </td>
-                                                ))}
+                                                {row.map((cell, c) => {
+                                                    if (isMergedAway(el, r, c)) return null
+                                                    const merge = findMergeAt(el, r, c)
+                                                    const badgeColor = columnBadgeColor(el, c, cell)
+                                                    return (
+                                                        <td
+                                                            key={c}
+                                                            colSpan={merge?.colspan ?? 1}
+                                                            style={{
+                                                                border: `1px solid ${el.borderColor}`,
+                                                                padding: '0.3cqh 0.6cqw',
+                                                                fontWeight: r === 0 && el.headerRow ? 700 : 400,
+                                                                whiteSpace: 'pre-wrap',
+                                                            } as React.CSSProperties}
+                                                        >
+                                                            {badgeColor ? (
+                                                                <span style={{ display: 'inline-block', border: `2px solid ${badgeColor}`, borderRadius: 999, padding: '2px 12px' }}>
+                                                                    {cell}
+                                                                </span>
+                                                            ) : (
+                                                                cell
+                                                            )}
+                                                        </td>
+                                                    )
+                                                })}
                                             </tr>
                                         ))}
                                     </tbody>
