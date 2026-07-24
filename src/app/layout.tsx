@@ -1,10 +1,16 @@
 import type { Metadata } from 'next'
-import { Geist } from 'next/font/google'
+import { Geist, Playfair_Display, Oswald, Caveat } from 'next/font/google'
 import Script from 'next/script'
 import './globals.css'
 import { SITE_URL, SITE_NAME, SITE_TAGLINE, SITE_DESCRIPTION } from '@/lib/site'
 
 const geist = Geist({ subsets: ['latin'] })
+// Menu-board font choices, exposed as CSS variables so design elements can
+// reference them by name (`var(--font-menu-serif)` etc.) from both the
+// editor and the TV player, which share this root layout.
+const menuSerif = Playfair_Display({ subsets: ['latin'], weight: ['400', '700'], variable: '--font-menu-serif' })
+const menuDisplay = Oswald({ subsets: ['latin'], weight: ['400', '700'], variable: '--font-menu-display' })
+const menuScript = Caveat({ subsets: ['latin'], weight: ['400', '700'], variable: '--font-menu-script' })
 
 export const metadata: Metadata = {
     metadataBase: new URL(SITE_URL),
@@ -69,7 +75,7 @@ export default function RootLayout({
 }) {
     return (
         <html lang="en">
-            <body className={geist.className}>
+            <body className={`${geist.className} ${menuSerif.variable} ${menuDisplay.variable} ${menuScript.variable}`}>
                 {/*
                   Registered here (root layout, beforeInteractive) rather
                   than inside the TV player component, so it fires as early

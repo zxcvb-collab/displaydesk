@@ -20,6 +20,19 @@ export const DEFAULT_IMAGE_INTERVAL_SECONDS = 5
 // instead of needing a full trig-based transform system.
 export type Rotation = 0 | 90 | 180 | 270
 
+export type FontFamily = 'sans' | 'serif' | 'display' | 'script'
+
+export const FONT_FAMILY_OPTIONS: { value: FontFamily; label: string; cssVar: string }[] = [
+    { value: 'sans', label: 'Sans', cssVar: 'var(--font-sans)' },
+    { value: 'serif', label: 'Serif (Playfair)', cssVar: 'var(--font-menu-serif)' },
+    { value: 'display', label: 'Display (Oswald)', cssVar: 'var(--font-menu-display)' },
+    { value: 'script', label: 'Script (Caveat)', cssVar: 'var(--font-menu-script)' },
+]
+
+export function fontFamilyCssVar(family: FontFamily | undefined): string {
+    return FONT_FAMILY_OPTIONS.find((f) => f.value === family)?.cssVar ?? 'var(--font-sans)'
+}
+
 export type TextElement = {
     id: string
     kind: 'text'
@@ -30,6 +43,7 @@ export type TextElement = {
     rotation?: Rotation
     text: string
     fontSize: number
+    fontFamily?: FontFamily
     color: string
     bold: boolean
     align: 'left' | 'center' | 'right'
@@ -75,6 +89,7 @@ export type TableElement = {
     rotation?: Rotation
     rows: string[][]
     fontSize: number
+    fontFamily?: FontFamily
     color: string
     borderColor: string
     headerRow: boolean
@@ -82,6 +97,12 @@ export type TableElement = {
     columnBadges?: (string | null)[]
     /** Colspan-only cell merges. A covered (non-anchor) cell is skipped on render. */
     merges?: TableMerge[]
+    /** Per-cell font size overrides, same [row][col] shape as `rows`. null/undefined falls back to the table's `fontSize`. */
+    cellFontSizes?: (number | null)[][]
+}
+
+export function cellFontSize(el: TableElement, row: number, col: number): number {
+    return el.cellFontSizes?.[row]?.[col] ?? el.fontSize
 }
 
 export type DesignElement = TextElement | ImageElement | RectElement | TableElement

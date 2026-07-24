@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState, useCallback } from 'react'
 import { resolveEffectiveSchedule, isOpenNow, type ScheduleMode, type WeekSchedule } from '@/lib/schedule'
-import { CANVAS_WIDTH, CANVAS_HEIGHT, DEFAULT_DURATION_SECONDS, DEFAULT_IMAGE_INTERVAL_SECONDS, imageUrls, findMergeAt, isMergedAway, columnBadgeColor, type DesignData, type ImageElement } from '@/lib/design'
+import { CANVAS_WIDTH, CANVAS_HEIGHT, DEFAULT_DURATION_SECONDS, DEFAULT_IMAGE_INTERVAL_SECONDS, imageUrls, findMergeAt, isMergedAway, columnBadgeColor, cellFontSize, fontFamilyCssVar, type DesignData, type ImageElement } from '@/lib/design'
 
 declare global {
     interface Window {
@@ -618,6 +618,7 @@ export default function TVPlayer({
                                     style={{
                                         ...style,
                                         fontSize: `${(el.fontSize / CANVAS_HEIGHT) * 100}cqh`,
+                                        fontFamily: fontFamilyCssVar(el.fontFamily),
                                         color: el.color,
                                         fontWeight: el.bold ? 700 : 400,
                                         textAlign: el.align,
@@ -639,6 +640,7 @@ export default function TVPlayer({
                                         ...style,
                                         borderCollapse: 'collapse',
                                         fontSize: `${(el.fontSize / CANVAS_HEIGHT) * 100}cqh`,
+                                        fontFamily: fontFamilyCssVar(el.fontFamily),
                                         color: el.color,
                                     } as React.CSSProperties}
                                 >
@@ -656,6 +658,7 @@ export default function TVPlayer({
                                                             style={{
                                                                 border: `1px solid ${el.borderColor}`,
                                                                 padding: '0.3cqh 0.6cqw',
+                                                                fontSize: `${(cellFontSize(el, r, c) / CANVAS_HEIGHT) * 100}cqh`,
                                                                 fontWeight: r === 0 && el.headerRow ? 700 : 400,
                                                                 whiteSpace: 'pre-wrap',
                                                             } as React.CSSProperties}

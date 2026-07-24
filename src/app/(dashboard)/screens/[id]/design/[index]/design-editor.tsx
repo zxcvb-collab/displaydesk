@@ -3,12 +3,14 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
+import { Type, Square, Table2, Image as ImageIcon, Camera } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 import { Button } from '@/components/ui/button'
 import {
     CANVAS_WIDTH,
     CANVAS_HEIGHT,
     DEFAULT_IMAGE_INTERVAL_SECONDS,
+    FONT_FAMILY_OPTIONS,
     newTextElement,
     newRectElement,
     newImageElement,
@@ -19,6 +21,8 @@ import {
     findMergeAt,
     isMergedAway,
     columnBadgeColor,
+    cellFontSize,
+    fontFamilyCssVar,
     rotatedResizeDelta,
     type DesignData,
     type DesignElement,
@@ -26,6 +30,7 @@ import {
     type ImageElement,
     type TableElement,
     type Rotation,
+    type FontFamily,
 } from '@/lib/design'
 import { STARTER_TEMPLATES } from '@/lib/design/starter-templates'
 
@@ -71,6 +76,7 @@ function DesignThumbnail({ design }: { design: DesignData }) {
                             style={{
                                 ...style,
                                 fontSize: `${(el.fontSize / CANVAS_HEIGHT) * 100}cqh`,
+                                fontFamily: fontFamilyCssVar(el.fontFamily),
                                 color: el.color,
                                 fontWeight: el.bold ? 700 : 400,
                                 textAlign: el.align,
@@ -96,6 +102,7 @@ function DesignThumbnail({ design }: { design: DesignData }) {
                                 ...style,
                                 borderCollapse: 'collapse',
                                 fontSize: `${(el.fontSize / CANVAS_HEIGHT) * 100}cqh`,
+                                fontFamily: fontFamilyCssVar(el.fontFamily),
                                 color: el.color,
                             } as React.CSSProperties}
                         >
@@ -112,6 +119,7 @@ function DesignThumbnail({ design }: { design: DesignData }) {
                                                     style={{
                                                         border: `1px solid ${el.borderColor}`,
                                                         padding: '0.2cqh 0.4cqw',
+                                                        fontSize: `${(cellFontSize(el, r, c) / CANVAS_HEIGHT) * 100}cqh`,
                                                         fontWeight: r === 0 && el.headerRow ? 700 : 400,
                                                         whiteSpace: 'nowrap',
                                                     } as React.CSSProperties}
@@ -362,16 +370,23 @@ export default function DesignEditor({
     }
     function addTableRow(el: TableElement) {
         const cols = el.rows[0]?.length ?? 2
-        updateElement(el.id, { rows: [...el.rows, Array(cols).fill('')] })
+        updateElement(el.id, {
+            rows: [...el.rows, Array(cols).fill('')],
+            cellFontSizes: el.cellFontSizes ? [...el.cellFontSizes, Array(cols).fill(null)] : undefined,
+        })
     }
     function removeTableRow(el: TableElement) {
         if (el.rows.length <= 1) return
-        updateElement(el.id, { rows: el.rows.slice(0, -1) })
+        updateElement(el.id, {
+            rows: el.rows.slice(0, -1),
+            cellFontSizes: el.cellFontSizes?.slice(0, -1),
+        })
     }
     function addTableColumn(el: TableElement) {
         updateElement(el.id, {
             rows: el.rows.map((row) => [...row, '']),
             columnBadges: [...(el.columnBadges ?? []), null],
+            cellFontSizes: el.cellFontSizes?.map((row) => [...row, null]),
         })
     }
     function removeTableColumn(el: TableElement) {
@@ -381,10 +396,17 @@ export default function DesignEditor({
         updateElement(el.id, {
             rows: el.rows.map((row) => row.slice(0, -1)),
             columnBadges: (el.columnBadges ?? []).slice(0, newCols),
+            cellFontSizes: el.cellFontSizes?.map((row) => row.slice(0, newCols)),
             merges: (el.merges ?? [])
                 .filter((m) => m.col < newCols)
                 .map((m) => ({ ...m, colspan: Math.min(m.colspan, newCols - m.col) })),
         })
+    }
+    function setCellFontSize(el: TableElement, row: number, col: number, size: number | null) {
+        const cols = el.rows[0]?.length ?? 0
+        const cellFontSizes = (el.cellFontSizes ?? el.rows.map(() => Array(cols).fill(null))).map((r) => [...r])
+        cellFontSizes[row][col] = size
+        updateElement(el.id, { cellFontSizes })
     }
     function setColumnBadge(el: TableElement, col: number, color: string | null) {
         const cols = el.rows[0]?.length ?? 0
@@ -487,7 +509,7 @@ export default function DesignEditor({
                             <p className="font-semibold text-zinc-900">Start from a template?</p>
                             <button
                                 onClick={() => setShowTemplatePicker(false)}
-                                className="text-sm text-zinc-400 hover:text-zinc-700"
+                                className="text-sm text-zinc-400 hover:text-zinc-700 rounded focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
                             >
                                 Start blank →
                             </button>
@@ -499,7 +521,7 @@ export default function DesignEditor({
                                 <button
                                     key={t.id}
                                     onClick={() => applyTemplate(t.design)}
-                                    className="border border-zinc-200 rounded-xl p-3 text-left hover:border-zinc-400 transition-colors"
+                                    className="border border-zinc-200 rounded-xl p-3 text-left hover:border-zinc-400 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
                                 >
                                     <div className="mb-2">
                                         <DesignThumbnail design={t.design} />
@@ -517,7 +539,7 @@ export default function DesignEditor({
                                         <button
                                             key={t.id}
                                             onClick={() => applyTemplate(t.design)}
-                                            className="border border-zinc-200 rounded-xl p-3 text-left hover:border-zinc-400 transition-colors"
+                                            className="border border-zinc-200 rounded-xl p-3 text-left hover:border-zinc-400 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
                                         >
                                             <div className="mb-2">
                                                 <DesignThumbnail design={t.design} />
@@ -551,28 +573,30 @@ export default function DesignEditor({
 
                 <div>
                     <p className="text-sm font-semibold text-zinc-900 mb-2">Add element</p>
-                    <div className="space-y-2">
-                        <Button variant="outline" size="sm" className="w-full justify-start" onClick={() => addElement(newTextElement())}>
-                            + Text
+                    <div className="space-y-1.5">
+                        <Button variant="outline" size="sm" className="w-full justify-start gap-2" onClick={() => addElement(newTextElement())}>
+                            <Type className="size-3.5 text-zinc-400" /> Text
                         </Button>
-                        <Button variant="outline" size="sm" className="w-full justify-start" onClick={() => addElement(newRectElement())}>
-                            + Shape
+                        <Button variant="outline" size="sm" className="w-full justify-start gap-2" onClick={() => addElement(newRectElement())}>
+                            <Square className="size-3.5 text-zinc-400" /> Shape
                         </Button>
-                        <Button variant="outline" size="sm" className="w-full justify-start" onClick={() => addElement(newTableElement())}>
-                            + Table
+                        <Button variant="outline" size="sm" className="w-full justify-start gap-2" onClick={() => addElement(newTableElement())}>
+                            <Table2 className="size-3.5 text-zinc-400" /> Table
                         </Button>
                         <input ref={fileInputRef} type="file" accept="image/*" multiple onChange={handleImageFile} className="hidden" />
                         <Button
                             variant="outline"
                             size="sm"
-                            className="w-full justify-start"
+                            className="w-full justify-start gap-2"
                             disabled={uploadingImage}
                             onClick={() => { pendingImageTarget.current = 'element'; fileInputRef.current?.click() }}
                         >
-                            {uploadingImage ? 'Uploading…' : '+ Image(s)'}
+                            <ImageIcon className="size-3.5 text-zinc-400" /> {uploadingImage ? 'Uploading…' : 'Image(s)'}
                         </Button>
-                        <Button variant="outline" size="sm" className="w-full justify-start" onClick={addPhotoWithCaption}>
-                            + Photo w/ caption
+                    </div>
+                    <div className="mt-2 pt-2 border-t border-dashed border-zinc-200">
+                        <Button variant="outline" size="sm" className="w-full justify-start gap-2" onClick={addPhotoWithCaption}>
+                            <Camera className="size-3.5 text-zinc-400" /> Photo with caption
                         </Button>
                     </div>
                 </div>
@@ -600,7 +624,7 @@ export default function DesignEditor({
                     </Button>
                 </div>
 
-                <div className="border-t border-zinc-200 pt-4 space-y-2">
+                <div className="space-y-2">
                     <Button variant="outline" size="sm" className="w-full" disabled={savingTemplate} onClick={saveAsTemplate}>
                         {savingTemplate ? 'Saving…' : 'Save as template'}
                     </Button>
@@ -613,13 +637,13 @@ export default function DesignEditor({
                     <div className="border-t border-zinc-200 pt-4">
                         <div className="flex items-center justify-between mb-2">
                             <p className="text-sm font-semibold text-zinc-900">Selected: {selected.kind}</p>
-                            <button onClick={removeSelected} className="text-xs text-red-500 hover:text-red-700">Delete</button>
+                            <button onClick={removeSelected} className="text-xs text-red-500 hover:text-red-700 rounded focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500">Delete</button>
                         </div>
 
-                        <div className="flex gap-2 mb-3">
-                            <Button variant="outline" size="xs" onClick={() => moveLayer(-1)}>Send back</Button>
-                            <Button variant="outline" size="xs" onClick={() => moveLayer(1)}>Bring forward</Button>
-                            <Button variant="outline" size="xs" onClick={rotateSelected}>Rotate 90°</Button>
+                        <div className="flex flex-wrap gap-1.5 mb-3">
+                            <Button variant="outline" size="xs" title="Send backward" onClick={() => moveLayer(-1)}>Back</Button>
+                            <Button variant="outline" size="xs" title="Bring forward" onClick={() => moveLayer(1)}>Front</Button>
+                            <Button variant="outline" size="xs" title="Rotate 90°" onClick={rotateSelected}>Rotate</Button>
                         </div>
 
                         {selected.kind === 'text' && (
@@ -640,6 +664,18 @@ export default function DesignEditor({
                                     />
                                 </div>
                                 <div className="flex items-center gap-2">
+                                    <label className="text-xs text-zinc-500 w-16">Font</label>
+                                    <select
+                                        value={selected.fontFamily ?? 'sans'}
+                                        onChange={(e) => updateElement(selected.id, { fontFamily: e.target.value as FontFamily })}
+                                        className="w-full px-2 py-1.5 border border-zinc-300 rounded-lg text-sm"
+                                    >
+                                        {FONT_FAMILY_OPTIONS.map((f) => (
+                                            <option key={f.value} value={f.value}>{f.label}</option>
+                                        ))}
+                                    </select>
+                                </div>
+                                <div className="flex items-center gap-2">
                                     <label className="text-xs text-zinc-500 w-16">Color</label>
                                     <input
                                         type="color"
@@ -651,7 +687,7 @@ export default function DesignEditor({
                                 <div className="flex items-center gap-2">
                                     <button
                                         onClick={() => updateElement(selected.id, { bold: !(selected as TextElement).bold })}
-                                        className={`px-2.5 py-1 rounded-lg text-sm font-bold border ${selected.bold ? 'bg-zinc-900 text-white border-zinc-900' : 'border-zinc-300 text-zinc-600'}`}
+                                        className={`px-2.5 py-1 rounded-lg text-sm font-bold border focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 ${selected.bold ? 'bg-zinc-900 text-white border-zinc-900' : 'border-zinc-300 text-zinc-600'}`}
                                     >
                                         B
                                     </button>
@@ -659,7 +695,7 @@ export default function DesignEditor({
                                         <button
                                             key={align}
                                             onClick={() => updateElement(selected.id, { align })}
-                                            className={`px-2.5 py-1 rounded-lg text-xs border ${selected.align === align ? 'bg-zinc-900 text-white border-zinc-900' : 'border-zinc-300 text-zinc-600'}`}
+                                            className={`px-2.5 py-1 rounded-lg text-xs border focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 ${selected.align === align ? 'bg-zinc-900 text-white border-zinc-900' : 'border-zinc-300 text-zinc-600'}`}
                                         >
                                             {align}
                                         </button>
@@ -727,7 +763,7 @@ export default function DesignEditor({
 
                         {selected.kind === 'table' && (
                             <div className="space-y-2">
-                                <div className="flex gap-2">
+                                <div className="flex flex-wrap gap-1.5">
                                     <Button variant="outline" size="xs" onClick={() => addTableRow(selected)}>+ Row</Button>
                                     <Button variant="outline" size="xs" onClick={() => removeTableRow(selected)}>− Row</Button>
                                     <Button variant="outline" size="xs" onClick={() => addTableColumn(selected)}>+ Col</Button>
@@ -756,15 +792,25 @@ export default function DesignEditor({
                                                                     : { tableId: selected.id, row: r, anchorCol: c, endCol: c }
                                                             )
                                                         }
+                                                        onKeyDown={(e) => {
+                                                            if (!e.shiftKey || (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight')) return
+                                                            e.preventDefault()
+                                                            const cols = selected.rows[0]?.length ?? 1
+                                                            setTableSelection((sel) => {
+                                                                const base = sel && sel.tableId === selected.id && sel.row === r ? sel : { tableId: selected.id, row: r, anchorCol: c, endCol: c }
+                                                                const nextEnd = Math.min(cols - 1, Math.max(0, base.endCol + (e.key === 'ArrowRight' ? 1 : -1)))
+                                                                return { ...base, endCol: nextEnd }
+                                                            })
+                                                        }}
                                                         style={{ flexGrow: merge?.colspan ?? 1 }}
-                                                        className={`flex-1 px-1.5 py-1 border rounded text-xs ${r === 0 && selected.headerRow ? 'font-semibold bg-zinc-50 border-zinc-300' : 'border-zinc-200'} ${isSelected ? 'ring-2 ring-blue-400' : ''}`}
+                                                        className={`flex-1 px-1.5 py-1 border rounded text-xs ${r === 0 && selected.headerRow ? 'font-semibold bg-zinc-50 border-zinc-300' : 'border-zinc-200'} ${isSelected ? 'ring-2 ring-blue-500' : ''}`}
                                                     />
                                                 )
                                             })}
                                         </div>
                                     ))}
                                 </div>
-                                <div className="flex gap-2">
+                                <div className="flex flex-wrap gap-1.5">
                                     <Button
                                         variant="outline"
                                         size="xs"
@@ -788,7 +834,7 @@ export default function DesignEditor({
                                         Unmerge
                                     </Button>
                                 </div>
-                                <p className="text-[11px] text-zinc-400">Click a cell, shift-click another in the same row to select a range.</p>
+                                <p className="text-[11px] text-zinc-400">Click a cell, then shift-click (or shift+arrow keys) to select a range.</p>
                                 <label className="flex items-center gap-2 text-xs text-zinc-500">
                                     <input
                                         type="checkbox"
@@ -812,7 +858,7 @@ export default function DesignEditor({
                                                     type="color"
                                                     value={selected.columnBadges[c] as string}
                                                     onChange={(e) => setColumnBadge(selected, c, e.target.value)}
-                                                    className="w-7 h-7 rounded border border-zinc-200 cursor-pointer"
+                                                    className="w-9 h-9 rounded border border-zinc-200 cursor-pointer"
                                                 />
                                             )}
                                         </div>
@@ -826,6 +872,34 @@ export default function DesignEditor({
                                         onChange={(e) => updateElement(selected.id, { fontSize: Number(e.target.value) || 16 })}
                                         className="w-full px-2 py-1 border border-zinc-300 rounded-lg text-sm"
                                     />
+                                </div>
+                                {tableSelection && tableSelection.tableId === selected.id && tableSelection.anchorCol === tableSelection.endCol && (
+                                    <div className="flex items-center gap-2">
+                                        <label className="text-xs text-zinc-500 w-16">Cell size</label>
+                                        <input
+                                            type="number"
+                                            placeholder={String(selected.fontSize)}
+                                            value={cellFontSize(selected, tableSelection.row, tableSelection.anchorCol)}
+                                            onChange={(e) => {
+                                                const v = e.target.value
+                                                setCellFontSize(selected, tableSelection.row, tableSelection.anchorCol, v === '' ? null : Number(v) || null)
+                                            }}
+                                            className="w-full px-2 py-1 border border-zinc-300 rounded-lg text-sm"
+                                        />
+                                        <span className="text-[11px] text-zinc-400 shrink-0">selected cell</span>
+                                    </div>
+                                )}
+                                <div className="flex items-center gap-2">
+                                    <label className="text-xs text-zinc-500 w-16">Font</label>
+                                    <select
+                                        value={selected.fontFamily ?? 'sans'}
+                                        onChange={(e) => updateElement(selected.id, { fontFamily: e.target.value as FontFamily })}
+                                        className="w-full px-2 py-1.5 border border-zinc-300 rounded-lg text-sm"
+                                    >
+                                        {FONT_FAMILY_OPTIONS.map((f) => (
+                                            <option key={f.value} value={f.value}>{f.label}</option>
+                                        ))}
+                                    </select>
                                 </div>
                                 <div className="flex items-center gap-2">
                                     <label className="text-xs text-zinc-500 w-16">Text</label>
@@ -848,7 +922,7 @@ export default function DesignEditor({
                     </div>
                 )}
 
-                <div className="border-t border-zinc-200 pt-4">
+                <div>
                     <label className="text-xs text-zinc-500 block mb-1">Duration (seconds)</label>
                     <input
                         type="number"
@@ -922,6 +996,7 @@ export default function DesignEditor({
                                             className="w-full h-full bg-transparent resize-none outline-none"
                                             style={{
                                                 fontSize: `${(el.fontSize / CANVAS_HEIGHT) * 100}cqh`,
+                                                fontFamily: fontFamilyCssVar(el.fontFamily),
                                                 color: el.color,
                                                 fontWeight: el.bold ? 700 : 400,
                                                 textAlign: el.align,
@@ -933,6 +1008,7 @@ export default function DesignEditor({
                                             className="w-full h-full whitespace-pre-wrap"
                                             style={{
                                                 fontSize: `${(el.fontSize / CANVAS_HEIGHT) * 100}cqh`,
+                                                fontFamily: fontFamilyCssVar(el.fontFamily),
                                                 color: el.color,
                                                 fontWeight: el.bold ? 700 : 400,
                                                 textAlign: el.align,
@@ -959,6 +1035,7 @@ export default function DesignEditor({
                                         className="w-full h-full border-collapse"
                                         style={{
                                             fontSize: `${(el.fontSize / CANVAS_HEIGHT) * 100}cqh`,
+                                            fontFamily: fontFamilyCssVar(el.fontFamily),
                                             color: el.color,
                                         }}
                                     >
@@ -976,6 +1053,7 @@ export default function DesignEditor({
                                                                 className="px-2 py-1"
                                                                 style={{
                                                                     border: `1px solid ${el.borderColor}`,
+                                                                    fontSize: `${(cellFontSize(el, r, c) / CANVAS_HEIGHT) * 100}cqh`,
                                                                     fontWeight: r === 0 && el.headerRow ? 700 : 400,
                                                                     whiteSpace: 'pre-wrap',
                                                                 }}
