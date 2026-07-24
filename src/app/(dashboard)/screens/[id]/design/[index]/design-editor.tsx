@@ -34,6 +34,12 @@ import {
 } from '@/lib/design'
 import { STARTER_TEMPLATES } from '@/lib/design/starter-templates'
 
+// Snap increment in canvas units (the canvas is a fixed 1920x1080 grid) —
+// 20 units gives a fine enough grid to align menu rows/columns without
+// feeling sticky.
+const GRID_SIZE = 20
+const snapToGridValue = (value: number, enabled: boolean) => (enabled ? Math.round(value / GRID_SIZE) * GRID_SIZE : value)
+
 type Slide = {
     url?: string
     type: 'youtube' | 'video' | 'design'
@@ -178,6 +184,9 @@ export default function DesignEditor({
     const [showTemplatePicker, setShowTemplatePicker] = useState(isNew && design.elements.length === 0)
     const [savingTemplate, setSavingTemplate] = useState(false)
     const [tableSelection, setTableSelection] = useState<{ tableId: string; row: number; anchorCol: number; endCol: number } | null>(null)
+    const [snapToGrid, setSnapToGrid] = useState(true)
+    const snapToGridRef = useRef(true)
+    useEffect(() => { snapToGridRef.current = snapToGrid }, [snapToGrid])
 
     useEffect(() => {
         fetch('/api/design-templates')
@@ -280,14 +289,20 @@ export default function DesignEditor({
                 const { id, startX, startY, origX, origY } = dragState.current
                 const dx = ((e.clientX - startX) / rect.width) * CANVAS_WIDTH
                 const dy = ((e.clientY - startY) / rect.height) * CANVAS_HEIGHT
-                updateElement(id, { x: Math.round(origX + dx), y: Math.round(origY + dy) })
+                updateElement(id, {
+                    x: snapToGridValue(Math.round(origX + dx), snapToGridRef.current),
+                    y: snapToGridValue(Math.round(origY + dy), snapToGridRef.current),
+                })
             }
             if (resizeState.current) {
                 const { id, startX, startY, origW, origH, rotation } = resizeState.current
                 const dxCanvas = ((e.clientX - startX) / rect.width) * CANVAS_WIDTH
                 const dyCanvas = ((e.clientY - startY) / rect.height) * CANVAS_HEIGHT
                 const { dw, dh } = rotatedResizeDelta(dxCanvas, dyCanvas, rotation)
-                updateElement(id, { width: Math.max(40, Math.round(origW + dw)), height: Math.max(40, Math.round(origH + dh)) })
+                updateElement(id, {
+                    width: snapToGridValue(Math.max(40, Math.round(origW + dw)), snapToGridRef.current),
+                    height: snapToGridValue(Math.max(40, Math.round(origH + dh)), snapToGridRef.current),
+                })
             }
         }
         function onUp() {
@@ -633,20 +648,201 @@ export default function DesignEditor({
                     </Button>
                 </div>
 
-                {selected && (
-                    <div className="border-t border-zinc-200 pt-4">
-                        <div className="flex items-center justify-between mb-2">
-                            <p className="text-sm font-semibold text-zinc-900">Selected: {selected.kind}</p>
-                            <button onClick={removeSelected} className="text-xs text-red-500 hover:text-red-700 rounded focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500">Delete</button>
+                <div>
+                    <label className="text-xs text-zinc-500 block mb-1">Duration (seconds)</label>
+                    <input
+                        type="number"
+                        min={2}
+                        value={duration}
+                        onChange={(e) => setDuration(Math.max(2, Number(e.target.value) || 8))}
+                        className="w-full px-2 py-1.5 border border-zinc-300 rounded-lg text-sm"
+                    />
+                    {slideshowTotalSeconds > duration && (
+                        <div className="mt-2 bg-amber-50 border border-amber-200 rounded-lg p-2.5">
+                            <p className="text-xs text-amber-800 mb-1.5">
+                                This slide has an image slideshow that takes {slideshowTotalSeconds}s to cycle
+                                through, longer than the {duration}s slide duration — some images may never show.
+                            </p>
+                            <Button
+                                variant="outline"
+                                size="xs"
+                                onClick={() => setDuration(slideshowTotalSeconds)}
+                            >
+                                Match duration to {slideshowTotalSeconds}s
+                            </Button>
                         </div>
+                    )}
+                </div>
 
-                        <div className="flex flex-wrap gap-1.5 mb-3">
-                            <Button variant="outline" size="xs" title="Send backward" onClick={() => moveLayer(-1)}>Back</Button>
-                            <Button variant="outline" size="xs" title="Bring forward" onClick={() => moveLayer(1)}>Front</Button>
-                            <Button variant="outline" size="xs" title="Rotate 90°" onClick={rotateSelected}>Rotate</Button>
-                        </div>
+                {error && <p className="text-sm text-red-600">{error}</p>}
 
-                        {selected.kind === 'text' && (
+                <Button onClick={save} disabled={saving} className="mt-auto">
+                    {saving ? 'Saving…' : 'Save design'}
+                </Button>
+            </div>
+
+            {/* Canvas */}
+            <div className="flex-1 flex flex-col items-center justify-center p-8 gap-3">
+                <label className="flex items-center gap-1.5 text-xs text-zinc-500 select-none">
+                    <input type="checkbox" checked={snapToGrid} onChange={(e) => setSnapToGrid(e.target.checked)} />
+                    Snap to grid
+                </label>
+                <div
+                    ref={canvasRef}
+                    onPointerDown={() => setSelectedId(null)}
+                    className="relative bg-black shadow-2xl"
+                    style={{
+                        width: '100%',
+                        maxWidth: `min(calc(90vh * ${(CANVAS_WIDTH / CANVAS_HEIGHT).toFixed(4)}), 100%)`,
+                        aspectRatio: `${CANVAS_WIDTH} / ${CANVAS_HEIGHT}`,
+                        containerType: 'size',
+                        background: design.background.type === 'color' ? design.background.value : undefined,
+                        backgroundImage: design.background.type === 'image' ? `url(${design.background.url})` : undefined,
+                        backgroundSize: 'cover',
+                        backgroundPosition: 'center',
+                    } as React.CSSProperties}
+                >
+                    {snapToGrid && (
+                        <div
+                            className="absolute inset-0 pointer-events-none"
+                            style={{
+                                backgroundImage:
+                                    'linear-gradient(to right, rgba(59,130,246,0.15) 1px, transparent 1px), linear-gradient(to bottom, rgba(59,130,246,0.15) 1px, transparent 1px)',
+                                backgroundSize: `${(GRID_SIZE / CANVAS_WIDTH) * 100}% ${(GRID_SIZE / CANVAS_HEIGHT) * 100}%`,
+                            }}
+                        />
+                    )}
+                    {design.elements.map((el) => {
+                        const style: React.CSSProperties = {
+                            position: 'absolute',
+                            left: `${(el.x / CANVAS_WIDTH) * 100}%`,
+                            top: `${(el.y / CANVAS_HEIGHT) * 100}%`,
+                            width: `${(el.width / CANVAS_WIDTH) * 100}%`,
+                            height: `${(el.height / CANVAS_HEIGHT) * 100}%`,
+                            outline: selectedId === el.id ? '2px solid #3b82f6' : 'none',
+                            cursor: 'move',
+                            transform: el.rotation ? `rotate(${el.rotation}deg)` : undefined,
+                        }
+
+                        return (
+                            <div key={el.id} style={style} onPointerDown={(e) => onElementPointerDown(e, el)}>
+                                {el.kind === 'text' && (
+                                    editingTextId === el.id ? (
+                                        <textarea
+                                            autoFocus
+                                            value={el.text}
+                                            onChange={(e) => updateElement(el.id, { text: e.target.value })}
+                                            onBlur={() => setEditingTextId(null)}
+                                            className="w-full h-full bg-transparent resize-none outline-none"
+                                            style={{
+                                                fontSize: `${(el.fontSize / CANVAS_HEIGHT) * 100}cqh`,
+                                                fontFamily: fontFamilyCssVar(el.fontFamily),
+                                                color: el.color,
+                                                fontWeight: el.bold ? 700 : 400,
+                                                textAlign: el.align,
+                                            }}
+                                        />
+                                    ) : (
+                                        <div
+                                            onDoubleClick={() => setEditingTextId(el.id)}
+                                            className="w-full h-full whitespace-pre-wrap"
+                                            style={{
+                                                fontSize: `${(el.fontSize / CANVAS_HEIGHT) * 100}cqh`,
+                                                fontFamily: fontFamilyCssVar(el.fontFamily),
+                                                color: el.color,
+                                                fontWeight: el.bold ? 700 : 400,
+                                                textAlign: el.align,
+                                            }}
+                                        >
+                                            {el.text}
+                                        </div>
+                                    )
+                                )}
+                                {el.kind === 'image' && (
+                                    imageUrls(el).length > 0 ? (
+                                        <img src={imageUrls(el)[0]} alt="" className="w-full h-full object-cover pointer-events-none" draggable={false} />
+                                    ) : (
+                                        <div className="w-full h-full flex items-center justify-center text-zinc-500 text-xs border border-dashed border-zinc-600">
+                                            No image yet
+                                        </div>
+                                    )
+                                )}
+                                {el.kind === 'rect' && (
+                                    <div className="w-full h-full" style={{ background: el.color }} />
+                                )}
+                                {el.kind === 'table' && (
+                                    <table
+                                        className="w-full h-full border-collapse"
+                                        style={{
+                                            fontSize: `${(el.fontSize / CANVAS_HEIGHT) * 100}cqh`,
+                                            fontFamily: fontFamilyCssVar(el.fontFamily),
+                                            color: el.color,
+                                        }}
+                                    >
+                                        <tbody>
+                                            {el.rows.map((row, r) => (
+                                                <tr key={r}>
+                                                    {row.map((cell, c) => {
+                                                        if (isMergedAway(el, r, c)) return null
+                                                        const merge = findMergeAt(el, r, c)
+                                                        const badgeColor = columnBadgeColor(el, c, cell)
+                                                        return (
+                                                            <td
+                                                                key={c}
+                                                                colSpan={merge?.colspan ?? 1}
+                                                                className="px-2 py-1"
+                                                                style={{
+                                                                    border: `1px solid ${el.borderColor}`,
+                                                                    fontSize: `${(cellFontSize(el, r, c) / CANVAS_HEIGHT) * 100}cqh`,
+                                                                    fontWeight: r === 0 && el.headerRow ? 700 : 400,
+                                                                    whiteSpace: 'pre-wrap',
+                                                                }}
+                                                            >
+                                                                {badgeColor ? (
+                                                                    <span style={{ display: 'inline-block', border: `2px solid ${badgeColor}`, borderRadius: 999, padding: '2px 12px' }}>
+                                                                        {cell}
+                                                                    </span>
+                                                                ) : (
+                                                                    cell
+                                                                )}
+                                                            </td>
+                                                        )
+                                                    })}
+                                                </tr>
+                                            ))}
+                                        </tbody>
+                                    </table>
+                                )}
+                                {selectedId === el.id && (
+                                    <div
+                                        onPointerDown={(e) => onResizeHandlePointerDown(e, el)}
+                                        className="absolute -right-1.5 -bottom-1.5 w-4 h-4 bg-blue-500 rounded-full cursor-se-resize"
+                                    />
+                                )}
+                            </div>
+                        )
+                    })}
+                </div>
+            </div>
+
+            {/* Properties panel — only shown once something is selected, kept
+                separate from the toolbar above so the left column stays a
+                short, static list of tools rather than growing/shrinking
+                with the current selection. */}
+            {selected && (
+                <div className="w-72 bg-white border-l border-zinc-200 p-4 flex flex-col gap-3 overflow-y-auto">
+                    <div className="flex items-center justify-between">
+                        <p className="text-sm font-semibold text-zinc-900">Selected: {selected.kind}</p>
+                        <button onClick={removeSelected} className="text-xs text-red-500 hover:text-red-700 rounded focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500">Delete</button>
+                    </div>
+
+                    <div className="flex flex-wrap gap-1.5">
+                        <Button variant="outline" size="xs" title="Send backward" onClick={() => moveLayer(-1)}>Back</Button>
+                        <Button variant="outline" size="xs" title="Bring forward" onClick={() => moveLayer(1)}>Front</Button>
+                        <Button variant="outline" size="xs" title="Rotate 90°" onClick={rotateSelected}>Rotate</Button>
+                    </div>
+
+                    {selected.kind === 'text' && (
                             <div className="space-y-2">
                                 <textarea
                                     value={selected.text}
@@ -921,169 +1117,6 @@ export default function DesignEditor({
                         )}
                     </div>
                 )}
-
-                <div>
-                    <label className="text-xs text-zinc-500 block mb-1">Duration (seconds)</label>
-                    <input
-                        type="number"
-                        min={2}
-                        value={duration}
-                        onChange={(e) => setDuration(Math.max(2, Number(e.target.value) || 8))}
-                        className="w-full px-2 py-1.5 border border-zinc-300 rounded-lg text-sm"
-                    />
-                    {slideshowTotalSeconds > duration && (
-                        <div className="mt-2 bg-amber-50 border border-amber-200 rounded-lg p-2.5">
-                            <p className="text-xs text-amber-800 mb-1.5">
-                                This slide has an image slideshow that takes {slideshowTotalSeconds}s to cycle
-                                through, longer than the {duration}s slide duration — some images may never show.
-                            </p>
-                            <Button
-                                variant="outline"
-                                size="xs"
-                                onClick={() => setDuration(slideshowTotalSeconds)}
-                            >
-                                Match duration to {slideshowTotalSeconds}s
-                            </Button>
-                        </div>
-                    )}
-                </div>
-
-                {error && <p className="text-sm text-red-600">{error}</p>}
-
-                <Button onClick={save} disabled={saving} className="mt-auto">
-                    {saving ? 'Saving…' : 'Save design'}
-                </Button>
-            </div>
-
-            {/* Canvas */}
-            <div className="flex-1 flex items-center justify-center p-8">
-                <div
-                    ref={canvasRef}
-                    onPointerDown={() => setSelectedId(null)}
-                    className="relative bg-black shadow-2xl"
-                    style={{
-                        width: '100%',
-                        maxWidth: `min(calc(90vh * ${(CANVAS_WIDTH / CANVAS_HEIGHT).toFixed(4)}), 100%)`,
-                        aspectRatio: `${CANVAS_WIDTH} / ${CANVAS_HEIGHT}`,
-                        containerType: 'size',
-                        background: design.background.type === 'color' ? design.background.value : undefined,
-                        backgroundImage: design.background.type === 'image' ? `url(${design.background.url})` : undefined,
-                        backgroundSize: 'cover',
-                        backgroundPosition: 'center',
-                    } as React.CSSProperties}
-                >
-                    {design.elements.map((el) => {
-                        const style: React.CSSProperties = {
-                            position: 'absolute',
-                            left: `${(el.x / CANVAS_WIDTH) * 100}%`,
-                            top: `${(el.y / CANVAS_HEIGHT) * 100}%`,
-                            width: `${(el.width / CANVAS_WIDTH) * 100}%`,
-                            height: `${(el.height / CANVAS_HEIGHT) * 100}%`,
-                            outline: selectedId === el.id ? '2px solid #3b82f6' : 'none',
-                            cursor: 'move',
-                            transform: el.rotation ? `rotate(${el.rotation}deg)` : undefined,
-                        }
-
-                        return (
-                            <div key={el.id} style={style} onPointerDown={(e) => onElementPointerDown(e, el)}>
-                                {el.kind === 'text' && (
-                                    editingTextId === el.id ? (
-                                        <textarea
-                                            autoFocus
-                                            value={el.text}
-                                            onChange={(e) => updateElement(el.id, { text: e.target.value })}
-                                            onBlur={() => setEditingTextId(null)}
-                                            className="w-full h-full bg-transparent resize-none outline-none"
-                                            style={{
-                                                fontSize: `${(el.fontSize / CANVAS_HEIGHT) * 100}cqh`,
-                                                fontFamily: fontFamilyCssVar(el.fontFamily),
-                                                color: el.color,
-                                                fontWeight: el.bold ? 700 : 400,
-                                                textAlign: el.align,
-                                            }}
-                                        />
-                                    ) : (
-                                        <div
-                                            onDoubleClick={() => setEditingTextId(el.id)}
-                                            className="w-full h-full whitespace-pre-wrap"
-                                            style={{
-                                                fontSize: `${(el.fontSize / CANVAS_HEIGHT) * 100}cqh`,
-                                                fontFamily: fontFamilyCssVar(el.fontFamily),
-                                                color: el.color,
-                                                fontWeight: el.bold ? 700 : 400,
-                                                textAlign: el.align,
-                                            }}
-                                        >
-                                            {el.text}
-                                        </div>
-                                    )
-                                )}
-                                {el.kind === 'image' && (
-                                    imageUrls(el).length > 0 ? (
-                                        <img src={imageUrls(el)[0]} alt="" className="w-full h-full object-cover pointer-events-none" draggable={false} />
-                                    ) : (
-                                        <div className="w-full h-full flex items-center justify-center text-zinc-500 text-xs border border-dashed border-zinc-600">
-                                            No image yet
-                                        </div>
-                                    )
-                                )}
-                                {el.kind === 'rect' && (
-                                    <div className="w-full h-full" style={{ background: el.color }} />
-                                )}
-                                {el.kind === 'table' && (
-                                    <table
-                                        className="w-full h-full border-collapse"
-                                        style={{
-                                            fontSize: `${(el.fontSize / CANVAS_HEIGHT) * 100}cqh`,
-                                            fontFamily: fontFamilyCssVar(el.fontFamily),
-                                            color: el.color,
-                                        }}
-                                    >
-                                        <tbody>
-                                            {el.rows.map((row, r) => (
-                                                <tr key={r}>
-                                                    {row.map((cell, c) => {
-                                                        if (isMergedAway(el, r, c)) return null
-                                                        const merge = findMergeAt(el, r, c)
-                                                        const badgeColor = columnBadgeColor(el, c, cell)
-                                                        return (
-                                                            <td
-                                                                key={c}
-                                                                colSpan={merge?.colspan ?? 1}
-                                                                className="px-2 py-1"
-                                                                style={{
-                                                                    border: `1px solid ${el.borderColor}`,
-                                                                    fontSize: `${(cellFontSize(el, r, c) / CANVAS_HEIGHT) * 100}cqh`,
-                                                                    fontWeight: r === 0 && el.headerRow ? 700 : 400,
-                                                                    whiteSpace: 'pre-wrap',
-                                                                }}
-                                                            >
-                                                                {badgeColor ? (
-                                                                    <span style={{ display: 'inline-block', border: `2px solid ${badgeColor}`, borderRadius: 999, padding: '2px 12px' }}>
-                                                                        {cell}
-                                                                    </span>
-                                                                ) : (
-                                                                    cell
-                                                                )}
-                                                            </td>
-                                                        )
-                                                    })}
-                                                </tr>
-                                            ))}
-                                        </tbody>
-                                    </table>
-                                )}
-                                {selectedId === el.id && (
-                                    <div
-                                        onPointerDown={(e) => onResizeHandlePointerDown(e, el)}
-                                        className="absolute -right-1.5 -bottom-1.5 w-4 h-4 bg-blue-500 rounded-full cursor-se-resize"
-                                    />
-                                )}
-                            </div>
-                        )
-                    })}
-                </div>
-            </div>
         </div>
     )
 }
