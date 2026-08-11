@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
+import { createAdminClient } from '@/lib/supabase/admin'
 import { stripe, PLAN_PRICE_IDS, isPaidPlan } from '@/lib/stripe'
 
 export async function POST(request: Request) {
@@ -29,7 +30,9 @@ export async function POST(request: Request) {
             metadata: { org_id: org.id },
         })
         customerId = customer.id
-        await supabase
+        // Service role: billing columns are no longer writable by the
+        // user's own session (see supabase-lifecycle-hardening.sql)
+        await createAdminClient()
             .from('organisations')
             .update({ stripe_customer_id: customerId })
             .eq('id', org.id)
