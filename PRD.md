@@ -251,11 +251,16 @@ when offline:
 - Runs via Vercel Cron (`/api/cron/lifecycle`, daily, `CRON_SECRET`-gated)
   — verified working in production with a manual trigger
 - **Emails are not sent yet** — Resend integration is deliberately on
-  hold. The state machine (disable/delete) still executes on schedule
-  regardless; a real customer could be disabled or deleted with no actual
-  warning reaching their inbox until Resend is wired up. A full 7-email
-  sequence covering the lifecycle (plus onboarding/engagement emails) has
-  been drafted and is parked for review
+  hold. Both destructive transitions are gated on their warning email
+  having actually been sent 14+ days earlier, so with sending off the
+  state machine stalls at "warning pending" instead of disabling or
+  deleting anyone unannounced. A full 7-email sequence covering the
+  lifecycle (plus onboarding/engagement emails) has been drafted and is
+  parked for review
+- Orgs whose owner is also a member of another org are skipped entirely —
+  every signup auto-creates a personal org, and expiring that unused
+  shadow org would delete the owner's login and cascade them out of the
+  (possibly paying) org they were invited to manage
 
 ## 7. Known Gaps / Deferred
 
