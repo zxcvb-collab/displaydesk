@@ -14,7 +14,9 @@ function LoginForm() {
     const searchParams = useSearchParams()
     const [email, setEmail] = useState('')
     const [password, setPassword] = useState('')
-    const [error, setError] = useState('')
+    // Auth callback and middleware redirect here with an explanation when
+    // they can't complete a sign-in
+    const [error, setError] = useState(searchParams.get('error') ?? '')
     const [loading, setLoading] = useState(false)
 
     async function handleSubmit(e: React.FormEvent) {

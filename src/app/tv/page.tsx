@@ -17,14 +17,23 @@ export default function TVPinEntryPage() {
             // which would show a screen as "online" before it's actually
             // loaded and playing
             const supabase = createAnonClient()
-            const { data } = await supabase.rpc('get_screen_by_pin', { p_pin: fullPin })
+            const { data, error: lookupError } = await supabase.rpc('get_screen_by_pin', { p_pin: fullPin })
+            // A failed lookup told staff their PIN was wrong, sending them
+            // to re-check a PIN that was correct all along
+            if (lookupError) {
+                console.error(`Failed to look up PIN ${fullPin}:`, lookupError)
+                setError('Could not check that PIN — check the internet connection and try again')
+                setPin('')
+                return
+            }
             if (!data?.[0]) {
                 setError('No screen found with that PIN')
                 setPin('')
                 return
             }
             router.push(`/tv/${fullPin}`)
-        } catch {
+        } catch (err) {
+            console.error(`Failed to look up PIN ${fullPin}:`, err)
             setError('Could not check that PIN — try again')
             setPin('')
         }

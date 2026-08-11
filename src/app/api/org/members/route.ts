@@ -1,14 +1,13 @@
 import { NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
-import { resolveOrgId } from '@/lib/org'
+import { requireOrgContext } from '@/lib/api'
 
 export async function DELETE(request: Request) {
     const supabase = await createClient()
-    const { data: { user } } = await supabase.auth.getUser()
-    if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+    const ctx = await requireOrgContext(supabase)
+    if ('response' in ctx) return ctx.response
 
-    const resolved = await resolveOrgId(supabase, user.id)
-    if (!resolved || resolved.role !== 'owner') {
+    if (ctx.role !== 'owner') {
         return NextResponse.json({ error: 'Only the org owner can remove team members' }, { status: 403 })
     }
 
@@ -18,9 +17,12 @@ export async function DELETE(request: Request) {
     const { error } = await supabase
         .from('org_members')
         .delete()
-        .eq('org_id', resolved.orgId)
+        .eq('org_id', ctx.orgId)
         .eq('user_id', memberUserId)
 
-    if (error) return NextResponse.json({ error: error.message }, { status: 500 })
+    if (error) {
+        console.error('Failed to remove team member:', error)
+        return NextResponse.json({ error: error.message }, { status: 500 })
+    }
     return NextResponse.json({ success: true })
 }

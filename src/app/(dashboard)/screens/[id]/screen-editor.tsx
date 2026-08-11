@@ -9,6 +9,7 @@ import { Input } from '@/components/ui/input'
 import { Badge } from '@/components/ui/badge'
 import WeekScheduleEditor from '@/components/week-schedule-editor'
 import { emptySchedule, type ScheduleMode, type WeekSchedule } from '@/lib/schedule'
+import { errorMessage, responseError } from '@/lib/http'
 import type { DesignData } from '@/lib/design'
 
 type Slide = {
@@ -56,7 +57,7 @@ async function patchScreen(id: string, updates: { name?: string; slides?: Slide[
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(updates),
     })
-    if (!res.ok) throw new Error('Failed to save')
+    if (!res.ok) throw new Error(await responseError(res, 'Failed to save'))
 }
 
 function extractStoragePath(publicUrl: string): string | null {
@@ -83,6 +84,7 @@ export default function ScreenEditor({
     const [urlError, setUrlError] = useState('')
     const [uploading, setUploading] = useState(false)
     const [saving, setSaving] = useState(false)
+    const [saveError, setSaveError] = useState('')
     const [deleting, setDeleting] = useState(false)
     const [scheduleMode, setScheduleMode] = useState<ScheduleMode>(screen.schedule_mode ?? 'inherit')
     const [schedule, setSchedule] = useState<WeekSchedule>(screen.schedule ?? emptySchedule())
@@ -91,25 +93,36 @@ export default function ScreenEditor({
     const nameRef = useRef(screen.name)
     const fileInputRef = useRef<HTMLInputElement>(null)
     const [activity, setActivity] = useState<ActivityEntry[]>([])
+    const [activityError, setActivityError] = useState('')
     const actorEmailRef = useRef('')
 
     useEffect(() => {
         (async () => {
-            const { data: { user } } = await supabase.auth.getUser()
+            const { data: { user }, error: userError } = await supabase.auth.getUser()
+            if (userError) console.error('Failed to load the current user:', userError)
             actorEmailRef.current = user?.email ?? ''
 
-            const { data } = await supabase
+            const { data, error } = await supabase
                 .from('screen_activity')
                 .select('*')
                 .eq('screen_id', screen.id)
                 .order('created_at', { ascending: false })
+            // An empty activity list and an unreadable one look identical,
+            // so say which one this is
+            if (error) {
+                console.error('Failed to load screen activity:', error)
+                setActivityError('Could not load the activity log')
+                return
+            }
             setActivity(data ?? [])
         })()
     // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [screen.id])
 
+    // Best-effort audit trail: a failure here must not block the edit that
+    // already succeeded, but it shouldn't disappear either
     async function logActivity(action: ActivityEntry['action'], detail: string) {
-        const { data } = await supabase
+        const { data, error } = await supabase
             .from('screen_activity')
             .insert({
                 screen_id: screen.id,
@@ -120,20 +133,43 @@ export default function ScreenEditor({
             })
             .select()
             .single()
+        if (error) {
+            console.error('Failed to record screen activity:', error)
+            return
+        }
         if (data) setActivity((prev) => [data, ...prev])
     }
 
     async function saveName() {
         if (name === nameRef.current) return
+        const previousName = nameRef.current
         nameRef.current = name
-        await patchScreen(screen.id, { name })
+        setSaveError('')
+        try {
+            await patchScreen(screen.id, { name })
+        } catch (err) {
+            // Roll the optimistic edit back so the input reflects what is
+            // actually stored rather than an unsaved value
+            nameRef.current = previousName
+            setName(previousName)
+            setSaveError(errorMessage(err, 'Could not save the screen name'))
+        }
     }
 
-    async function updateSlides(next: Slide[]) {
+    // Resolves to whether the change was persisted, so callers don't record
+    // activity for an edit that never landed
+    async function updateSlides(next: Slide[]): Promise<boolean> {
+        const previous = slides
         setSlides(next)
         setSaving(true)
+        setSaveError('')
         try {
             await patchScreen(screen.id, { slides: next })
+            return true
+        } catch (err) {
+            setSlides(previous)
+            setSaveError(errorMessage(err, 'Could not save your changes'))
+            return false
         } finally {
             setSaving(false)
         }
@@ -142,18 +178,21 @@ export default function ScreenEditor({
     async function saveSchedule() {
         setScheduleSaving(true)
         setScheduleSaved(false)
+        setSaveError('')
         try {
             await patchScreen(screen.id, {
                 schedule_mode: scheduleMode,
                 schedule: scheduleMode === 'custom' ? schedule : null,
             })
             setScheduleSaved(true)
+        } catch (err) {
+            setSaveError(errorMessage(err, 'Could not save the schedule'))
         } finally {
             setScheduleSaving(false)
         }
     }
 
-    function addSlide() {
+    async function addSlide() {
         setUrlError('')
         const trimmed = urlInput.trim()
         if (!trimmed) return
@@ -161,8 +200,8 @@ export default function ScreenEditor({
             setUrlError('Please enter a valid YouTube URL')
             return
         }
-        updateSlides([...slides, { url: trimmed, type: 'youtube' }])
-        logActivity('upload', trimmed)
+        if (!(await updateSlides([...slides, { url: trimmed, type: 'youtube' }]))) return
+        await logActivity('upload', trimmed)
         setUrlInput('')
     }
 
@@ -191,8 +230,8 @@ export default function ScreenEditor({
             }
 
             const { data: urlData } = supabase.storage.from('videos').getPublicUrl(data.path)
-            updateSlides([...slides, { url: urlData.publicUrl, type: 'video' }])
-            logActivity('upload', file.name)
+            if (!(await updateSlides([...slides, { url: urlData.publicUrl, type: 'video' }]))) return
+            await logActivity('upload', file.name)
         } finally {
             setUploading(false)
             if (fileInputRef.current) fileInputRef.current.value = ''
@@ -218,8 +257,8 @@ export default function ScreenEditor({
             }
         }
 
-        updateSlides(slides.filter((_, i) => i !== index))
-        logActivity('delete', slide.url ?? 'design slide')
+        if (!(await updateSlides(slides.filter((_, i) => i !== index)))) return
+        await logActivity('delete', slide.url ?? 'design slide')
     }
 
     function moveSlide(index: number, direction: -1 | 1) {
@@ -239,17 +278,30 @@ export default function ScreenEditor({
         if (!confirm(message)) return
 
         setDeleting(true)
+        setSaveError('')
         try {
             const paths = videoSlides
                 .map((s) => extractStoragePath(s.url ?? ''))
                 .filter((p): p is string => p !== null)
             if (paths.length > 0) {
-                await supabase.storage.from('videos').remove(paths)
+                const { error } = await supabase.storage.from('videos').remove(paths)
+                if (error) {
+                    setSaveError(`Could not delete the stored video files: ${error.message}`)
+                    return
+                }
             }
 
-            await fetch(`/api/screens/${screen.id}`, { method: 'DELETE' })
+            const res = await fetch(`/api/screens/${screen.id}`, { method: 'DELETE' })
+            // Navigating regardless made a rejected delete look successful,
+            // and the screen reappeared on the dashboard
+            if (!res.ok) {
+                setSaveError(await responseError(res, 'Could not delete this screen'))
+                return
+            }
             router.push('/dashboard')
             router.refresh()
+        } catch (err) {
+            setSaveError(errorMessage(err, 'Could not delete this screen'))
         } finally {
             setDeleting(false)
         }
@@ -458,6 +510,7 @@ export default function ScreenEditor({
                 </div>
 
                 {urlError && <p className="text-sm text-red-600">{urlError}</p>}
+                {saveError && <p className="text-sm text-red-600">{saveError}</p>}
             </div>
 
             {/* Schedule */}
@@ -517,7 +570,9 @@ export default function ScreenEditor({
             {/* Activity log */}
             <div className="mt-8">
                 <h2 className="font-semibold text-zinc-900 mb-4">Activity</h2>
-                {activity.length === 0 ? (
+                {activityError ? (
+                    <p className="text-sm text-red-600">{activityError}</p>
+                ) : activity.length === 0 ? (
                     <p className="text-sm text-zinc-400">No activity yet</p>
                 ) : (
                     <div className="space-y-2">

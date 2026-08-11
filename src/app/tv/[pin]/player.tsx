@@ -108,7 +108,10 @@ async function getMediaCache(): Promise<Cache | null> {
     if (typeof caches === 'undefined') return null
     try {
         return await caches.open(MEDIA_CACHE_NAME)
-    } catch {
+    } catch (err) {
+        // Offline caching is an optimisation — playback continues without
+        // it, but a TV that can never cache is worth being able to diagnose
+        console.error('Media cache unavailable:', err)
         return null
     }
 }
@@ -285,7 +288,8 @@ export default function TVPlayer({
             if (!videoRef.current) return
             videoRef.current.src = objectUrl
             await videoRef.current.play()
-        } catch {
+        } catch (err) {
+            console.error('Cached playback fallback failed:', err)
             advanceSlide()
         }
     }, [advanceSlide])
@@ -305,9 +309,14 @@ export default function TVPlayer({
                 if (await cache.match(url)) continue
                 try {
                     const res = await fetch(url)
-                    if (res.ok) await cache.put(url, res.clone())
-                } catch {
+                    if (res.ok) {
+                        await cache.put(url, res.clone())
+                    } else {
+                        console.error(`Failed to cache ${url}: HTTP ${res.status}`)
+                    }
+                } catch (err) {
                     // offline or failed — will retry next time slides change
+                    console.error(`Failed to cache ${url}:`, err)
                 }
             }
         })()
@@ -447,7 +456,15 @@ export default function TVPlayer({
         const poll = async () => {
             try {
                 const res = await fetch(`/api/tv/${pin}?slide=${currentIndex.current}&open=${isOpenRef.current}`)
-                if (!res.ok) return
+                // A rejected poll used to be discarded without a trace, so a
+                // screen stuck on stale content looked perfectly healthy
+                if (!res.ok) {
+                    console.error(`Slide poll for PIN ${pin} failed with HTTP ${res.status}`)
+                    // Our own server failing is as good as being offline as
+                    // far as the YouTube fallback image is concerned
+                    if (res.status >= 500) setIsOnline(false)
+                    return
+                }
                 const { slides: fresh, scheduleMode: freshMode, schedule: freshSchedule, orgDefaultSchedule: freshOrgSchedule, orgStatus: freshOrgStatus } = await res.json()
                 setSlides((prev) => {
                     if (JSON.stringify(prev) === JSON.stringify(fresh)) return prev
@@ -461,7 +478,8 @@ export default function TVPlayer({
                 // connectivity — more reliable than the browser's online
                 // flag (see the offline-detection note below)
                 setIsOnline(true)
-            } catch {
+            } catch (err) {
+                console.error(`Slide poll for PIN ${pin} failed:`, err)
                 // The fetch itself threw (not just a non-2xx response) —
                 // this is the real signal we rely on for offline detection.
                 // navigator.onLine/online/offline events only reflect "is

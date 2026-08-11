@@ -3,6 +3,7 @@
 import { useState } from 'react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
+import { errorMessage, responseError } from '@/lib/http'
 
 type Member = { userId: string; email: string }
 
@@ -31,13 +32,15 @@ export default function TeamSettings({
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ email: email.trim() }),
             })
-            const body = await res.json()
             if (!res.ok) {
-                setError(body.error || 'Failed to create invite')
+                setError(await responseError(res, 'Failed to create invite'))
                 return
             }
+            const body = await res.json()
             setInviteUrl(body.url)
             setEmail('')
+        } catch (err) {
+            setError(errorMessage(err, 'Failed to create invite — check your connection and try again'))
         } finally {
             setSending(false)
         }
@@ -46,9 +49,18 @@ export default function TeamSettings({
     async function removeMember(userId: string) {
         if (!confirm('Remove this team member? They will lose access immediately.')) return
         setRemovingId(userId)
+        setError('')
         try {
-            await fetch(`/api/org/members?userId=${encodeURIComponent(userId)}`, { method: 'DELETE' })
+            const res = await fetch(`/api/org/members?userId=${encodeURIComponent(userId)}`, { method: 'DELETE' })
+            // Dropping the row regardless told the owner the member was
+            // gone while they still had full access to every screen
+            if (!res.ok) {
+                setError(await responseError(res, 'Could not remove this team member'))
+                return
+            }
             setMembers((prev) => prev.filter((m) => m.userId !== userId))
+        } catch (err) {
+            setError(errorMessage(err, 'Could not remove this team member'))
         } finally {
             setRemovingId('')
         }

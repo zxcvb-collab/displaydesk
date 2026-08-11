@@ -21,15 +21,30 @@ export async function middleware(request: NextRequest) {
         }
     )
 
-    const { data: { user } } = await supabase.auth.getUser()
-
     const { pathname } = request.nextUrl
+    const isAuthPage = pathname === '/login' || pathname === '/signup' || pathname === '/reset-password'
+    const isDashboardPage = pathname.startsWith('/dashboard') || pathname.startsWith('/screens')
+
+    // An unreachable auth service throws here, which would otherwise take
+    // down every matched route with an opaque 500 — protected pages fail
+    // closed to /login, everything else renders as an anonymous visitor
+    let user
+    try {
+        const { data, error } = await supabase.auth.getUser()
+        if (error) throw new Error(error.message)
+        user = data.user
+    } catch (err) {
+        console.error(`[middleware] auth lookup failed for ${pathname}:`, err)
+        if (isDashboardPage) {
+            const loginUrl = new URL('/login', request.url)
+            loginUrl.searchParams.set('error', 'Could not verify your session — please log in again')
+            return NextResponse.redirect(loginUrl)
+        }
+        return supabaseResponse
+    }
 
     // Log every middleware call to terminal
     console.log(`[middleware] ${pathname} | user: ${user?.email ?? 'none'}`)
-
-    const isAuthPage = pathname === '/login' || pathname === '/signup' || pathname === '/reset-password'
-    const isDashboardPage = pathname.startsWith('/dashboard') || pathname.startsWith('/screens')
 
     if (!user && isDashboardPage) {
         console.log(`[middleware] → redirecting to /login`)

@@ -1,6 +1,7 @@
 import { redirect } from 'next/navigation'
 import Link from 'next/link'
 import { createClient } from '@/lib/supabase/server'
+import { NO_ROWS } from '@/lib/supabase/errors'
 import { Button } from '@/components/ui/button'
 
 export default async function DashboardLayout({
@@ -9,14 +10,20 @@ export default async function DashboardLayout({
     children: React.ReactNode
 }) {
     const supabase = await createClient()
-    const { data: { user } } = await supabase.auth.getUser()
+    const { data: { user }, error: authError } = await supabase.auth.getUser()
+    if (authError) throw new Error(`Could not verify your session: ${authError.message}`)
     if (!user) redirect('/login')
 
-    const { data: org } = await supabase
+    // Only used for the header label, so a missing row (team members don't
+    // own an org) is fine — a failed query is worth knowing about
+    const { data: org, error: orgError } = await supabase
         .from('organisations')
         .select('name, plan')
         .eq('owner_id', user.id)
         .single()
+    if (orgError && orgError.code !== NO_ROWS) {
+        console.error('Failed to load organisation for the dashboard header:', orgError)
+    }
 
     return (
         <div className="min-h-screen bg-zinc-50">
