@@ -1,5 +1,7 @@
 import { NextResponse } from 'next/server'
 import { createAdminClient } from '@/lib/supabase/admin'
+import { jsonError } from '@/lib/api/server'
+import { normalizeSlides, videoStoragePaths } from '@/lib/slides'
 import {
     sendTrialEndingWarning,
     sendDisableConfirmation,
@@ -17,17 +19,10 @@ function daysSince(dateStr: string): number {
     return (Date.now() - new Date(dateStr).getTime()) / DAY_MS
 }
 
-function extractStoragePath(publicUrl: string): string | null {
-    const marker = '/object/public/videos/'
-    const idx = publicUrl.indexOf(marker)
-    if (idx === -1) return null
-    return decodeURIComponent(publicUrl.slice(idx + marker.length))
-}
-
 export async function GET(request: Request) {
     const authHeader = request.headers.get('authorization')
     if (authHeader !== `Bearer ${process.env.CRON_SECRET}`) {
-        return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+        return jsonError('Unauthorized', 401)
     }
 
     const supabase = createAdminClient()
@@ -85,11 +80,7 @@ export async function GET(request: Request) {
             const ownerEmail = userData?.user?.email
 
             const { data: screens } = await supabase.from('screens').select('slides').eq('org_id', org.id)
-            const storagePaths = (screens ?? [])
-                .flatMap((s) => (Array.isArray(s.slides) ? s.slides : []))
-                .filter((slide: { type: string }) => slide.type === 'video')
-                .map((slide: { url: string }) => extractStoragePath(slide.url))
-                .filter((p): p is string => p !== null)
+            const storagePaths = (screens ?? []).flatMap((s) => videoStoragePaths(normalizeSlides(s.slides)))
 
             if (storagePaths.length > 0) {
                 await supabase.storage.from('videos').remove(storagePaths)

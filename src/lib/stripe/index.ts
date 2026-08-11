@@ -1,4 +1,5 @@
 import Stripe from 'stripe'
+import type { SupabaseClient } from '@supabase/supabase-js'
 
 export const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!)
 
@@ -79,5 +80,41 @@ export async function syncScreenAddon(subscriptionId: string, plan: PaidPlan, sc
             price: addonPriceId,
             quantity: extra,
         })
+    }
+}
+
+export async function countScreens(
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    supabase: SupabaseClient<any>,
+    orgId: string
+): Promise<number> {
+    const { count } = await supabase
+        .from('screens')
+        .select('*', { count: 'exact', head: true })
+        .eq('org_id', orgId)
+    return count ?? 0
+}
+
+/**
+ * Re-syncs an org's add-on quantity from its current screen count. Called
+ * after anything that can change the extra-screen count or the included
+ * count: adding/removing a screen, and plan changes via Stripe webhooks.
+ * Billing is best-effort — a Stripe failure must never fail the caller's
+ * own operation, which has already succeeded by this point.
+ */
+export async function syncScreenAddonForOrg(
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    supabase: SupabaseClient<any>,
+    orgId: string,
+    plan: string,
+    subscriptionId: string | null,
+    screenCount?: number
+) {
+    if (!isPaidPlan(plan) || !subscriptionId) return
+    try {
+        const count = screenCount ?? (await countScreens(supabase, orgId))
+        await syncScreenAddon(subscriptionId, plan, count)
+    } catch (err) {
+        console.error('Failed to sync screen add-on billing:', err)
     }
 }

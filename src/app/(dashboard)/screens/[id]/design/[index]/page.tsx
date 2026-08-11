@@ -1,6 +1,6 @@
-import { redirect, notFound } from 'next/navigation'
-import { createClient } from '@/lib/supabase/server'
-import { resolveOrgId } from '@/lib/org'
+import { notFound } from 'next/navigation'
+import { requireActiveOrgPage } from '@/lib/org/page'
+import { normalizeSlides } from '@/lib/slides'
 import { emptyDesign, type DesignData } from '@/lib/design'
 import DesignEditor from './design-editor'
 
@@ -12,21 +12,7 @@ export default async function DesignPage({
     params: Promise<{ id: string; index: string }>
 }) {
     const { id, index } = await params
-    const supabase = await createClient()
-
-    const { data: { user } } = await supabase.auth.getUser()
-    if (!user) redirect('/login')
-
-    const resolved = await resolveOrgId(supabase, user.id)
-    if (!resolved) redirect('/login')
-
-    const { data: org } = await supabase
-        .from('organisations')
-        .select('id, status')
-        .eq('id', resolved.orgId)
-        .single()
-    if (!org) redirect('/login')
-    if (org.status === 'disabled') redirect('/dashboard')
+    const { supabase, org } = await requireActiveOrgPage()
 
     const { data: screen } = await supabase
         .from('screens')
@@ -36,7 +22,7 @@ export default async function DesignPage({
         .single()
     if (!screen) notFound()
 
-    const slides = Array.isArray(screen.slides) ? screen.slides : []
+    const slides = normalizeSlides(screen.slides)
     const isNew = index === 'new'
     const slideIndex = isNew ? slides.length : Number(index)
 

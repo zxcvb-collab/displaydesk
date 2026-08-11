@@ -1,13 +1,13 @@
 import { NextResponse } from 'next/server'
-import { createClient } from '@/lib/supabase/server'
+import { jsonError, requireUser } from '@/lib/api/server'
 import { stripe, PLAN_PRICE_IDS, isPaidPlan } from '@/lib/stripe'
 
 export async function POST(request: Request) {
     const url = new URL(request.url)
     const origin = url.origin
-    const supabase = await createClient()
-    const { data: { user } } = await supabase.auth.getUser()
-    if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+    const auth = await requireUser()
+    if (!auth.ok) return auth.response
+    const { supabase, user } = auth.value
 
     const { data: org } = await supabase
         .from('organisations')
@@ -15,11 +15,11 @@ export async function POST(request: Request) {
         .eq('owner_id', user.id)
         .single()
 
-    if (!org) return NextResponse.json({ error: 'No organisation found' }, { status: 404 })
+    if (!org) return jsonError('No organisation found', 404)
 
     const plan = url.searchParams.get('plan') ?? ''
     if (!isPaidPlan(plan)) {
-        return NextResponse.json({ error: 'Invalid plan' }, { status: 400 })
+        return jsonError('Invalid plan', 400)
     }
 
     let customerId = org.stripe_customer_id
@@ -45,7 +45,7 @@ export async function POST(request: Request) {
     })
 
     if (!session.url) {
-        return NextResponse.json({ error: 'Failed to create checkout session' }, { status: 500 })
+        return jsonError('Failed to create checkout session', 500)
     }
 
     return NextResponse.redirect(session.url, 303)
