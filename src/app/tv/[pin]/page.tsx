@@ -8,9 +8,12 @@ export default async function TVPage({ params }: { params: Promise<{ pin: string
     const { pin } = await params
     const supabase = await createClient()
 
-    const { data: screens } = await supabase.rpc('get_screen_by_pin', { p_pin: pin })
-    const screen = screens?.[0]
+    const { data: screens, error } = await supabase.rpc('get_screen_by_pin', { p_pin: pin })
+    // A failed lookup must not render as "no such PIN" — that would send a
+    // correctly configured TV to the not-found screen during an outage
+    if (error) throw new Error(`Failed to load screen for PIN ${pin}: ${error.message}`)
 
+    const screen = screens?.[0]
     if (!screen) notFound()
 
     return (

@@ -4,23 +4,35 @@ import { useState } from 'react'
 import { Button } from '@/components/ui/button'
 import WeekScheduleEditor from '@/components/week-schedule-editor'
 import { emptySchedule, type WeekSchedule } from '@/lib/schedule'
+import { errorMessage, responseError } from '@/lib/http'
 
 export default function OrgScheduleSettings({ initialSchedule }: { initialSchedule: WeekSchedule | null }) {
     const [enabled, setEnabled] = useState(initialSchedule !== null)
     const [schedule, setSchedule] = useState<WeekSchedule>(initialSchedule ?? emptySchedule())
     const [saving, setSaving] = useState(false)
     const [saved, setSaved] = useState(false)
+    const [error, setError] = useState('')
 
     async function save() {
         setSaving(true)
         setSaved(false)
+        setError('')
         try {
-            await fetch('/api/organisation', {
+            const res = await fetch('/api/organisation', {
                 method: 'PATCH',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ default_schedule: enabled ? schedule : null }),
             })
+            // "Saved" was shown unconditionally, so a rejected save (e.g. a
+            // team member without permission) looked like it worked until
+            // the page was reloaded
+            if (!res.ok) {
+                setError(await responseError(res, 'Could not save your business hours'))
+                return
+            }
             setSaved(true)
+        } catch (err) {
+            setError(errorMessage(err, 'Could not save your business hours'))
         } finally {
             setSaving(false)
         }
@@ -57,6 +69,8 @@ export default function OrgScheduleSettings({ initialSchedule }: { initialSchedu
                 </Button>
                 {saved && <span className="text-xs text-zinc-400">Saved</span>}
             </div>
+
+            {error && <p className="text-sm text-red-600 mt-2">{error}</p>}
         </div>
     )
 }

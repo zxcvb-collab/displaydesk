@@ -28,9 +28,15 @@ function formatTimeAgo(dateStr: string): string {
     return `${Math.floor(diffHr / 24)}d ago`
 }
 
-export default async function DashboardPage() {
+export default async function DashboardPage({
+    searchParams,
+}: {
+    searchParams: Promise<{ error?: string }>
+}) {
+    const { error: pageError } = await searchParams
     const supabase = await createClient()
-    const { data: { user } } = await supabase.auth.getUser()
+    const { data: { user }, error: authError } = await supabase.auth.getUser()
+    if (authError) throw new Error(`Could not verify your session: ${authError.message}`)
     if (!user) redirect('/login')
 
     const resolved = await resolveOrgId(supabase, user.id)
@@ -66,27 +72,36 @@ export default async function DashboardPage() {
         org = data
     }
 
-    const { data: memberRows } = await supabase
+    const { data: memberRows, error: memberRowsError } = await supabase
         .from('org_members')
         .select('user_id')
         .eq('org_id', org.id)
+
+    if (memberRowsError) throw new Error(`Failed to load team members: ${memberRowsError.message}`)
 
     let members: { userId: string; email: string }[] = []
     if (memberRows && memberRows.length > 0) {
         const admin = createAdminClient()
         members = await Promise.all(
             memberRows.map(async (m) => {
-                const { data: userData } = await admin.auth.admin.getUserById(m.user_id)
+                // A single unreadable member shouldn't blank the whole team
+                // list, but it also shouldn't disappear without a trace
+                const { data: userData, error: memberError } = await admin.auth.admin.getUserById(m.user_id)
+                if (memberError) console.error(`Failed to load team member ${m.user_id}:`, memberError)
                 return { userId: m.user_id, email: userData?.user?.email ?? 'Unknown' }
             })
         )
     }
 
-    const { data: screens } = await supabase
+    const { data: screens, error: screensError } = await supabase
         .from('screens')
         .select('*')
         .eq('org_id', org.id)
         .order('created_at', { ascending: true })
+
+    // A failed fetch rendered as "No screens yet", which invites the owner
+    // to recreate screens that already exist
+    if (screensError) throw new Error(`Failed to load screens: ${screensError.message}`)
 
     const screenList = screens ?? []
     const planLimit = includedScreens(org.plan)
@@ -135,6 +150,12 @@ export default async function DashboardPage() {
 
     return (
         <div>
+            {pageError && (
+                <div className="mb-6 rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+                    {pageError}
+                </div>
+            )}
+
             {/* Header */}
             <div className="flex items-center justify-between mb-8">
                 <div>

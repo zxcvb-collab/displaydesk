@@ -33,6 +33,7 @@ import {
     type FontFamily,
 } from '@/lib/design'
 import { STARTER_TEMPLATES } from '@/lib/design/starter-templates'
+import { errorMessage, responseError } from '@/lib/http'
 
 // Snap increment in canvas units (the canvas is a fixed 1920x1080 grid) —
 // 20 units gives a fine enough grid to align menu rows/columns without
@@ -181,6 +182,7 @@ export default function DesignEditor({
     const [error, setError] = useState('')
 
     const [templates, setTemplates] = useState<SavedTemplate[]>([])
+    const [templatesError, setTemplatesError] = useState('')
     const [showTemplatePicker, setShowTemplatePicker] = useState(isNew && design.elements.length === 0)
     const [savingTemplate, setSavingTemplate] = useState(false)
     const [tableSelection, setTableSelection] = useState<{ tableId: string; row: number; anchorCol: number; endCol: number } | null>(null)
@@ -188,11 +190,20 @@ export default function DesignEditor({
     const snapToGridRef = useRef(true)
     useEffect(() => { snapToGridRef.current = snapToGrid }, [snapToGrid])
 
+    // The picker showed "no saved templates" whether the list was empty or
+    // the request failed, so users were told their templates were gone
     useEffect(() => {
-        fetch('/api/design-templates')
-            .then((r) => r.json())
-            .then((d) => setTemplates(d.templates ?? []))
-            .catch(() => {})
+        (async () => {
+            try {
+                const res = await fetch('/api/design-templates')
+                if (!res.ok) throw new Error(await responseError(res, 'Failed to load templates'))
+                const { templates: loaded } = await res.json()
+                setTemplates(loaded ?? [])
+            } catch (err) {
+                console.error('Failed to load design templates:', err)
+                setTemplatesError(errorMessage(err, 'Could not load your saved templates'))
+            }
+        })()
     }, [])
 
     const selected = design.elements.find((e) => e.id === selectedId) ?? null
@@ -258,8 +269,10 @@ export default function DesignEditor({
                 const { template } = await res.json()
                 setTemplates((t) => [template, ...t])
             } else {
-                setError('Failed to save template')
+                setError(await responseError(res, 'Failed to save template'))
             }
+        } catch (err) {
+            setError(errorMessage(err, 'Failed to save template'))
         } finally {
             setSavingTemplate(false)
         }
@@ -319,22 +332,31 @@ export default function DesignEditor({
     }, [])
 
     // --- Image upload (background, new element, or appending to an existing slideshow element) ---
+    // Reports every file that didn't make it — non-image files were dropped
+    // without a word, and with several failures only the last message
+    // survived, so a partial upload looked like a complete one
     async function uploadImages(files: FileList): Promise<string[]> {
         const urls: string[] = []
+        const failures: string[] = []
         for (const file of Array.from(files)) {
-            if (!file.type.startsWith('image/')) continue
+            if (!file.type.startsWith('image/')) {
+                failures.push(`${file.name} is not an image`)
+                continue
+            }
             const ext = file.name.split('.').pop() || 'jpg'
             const path = `${orgId}/${screenId}/design-images/${Date.now()}-${Math.random().toString(36).slice(2)}.${ext}`
             const { data, error: uploadError } = await supabase.storage
                 .from('videos')
                 .upload(path, file, { upsert: false, cacheControl: '31536000' })
             if (uploadError) {
-                setError(uploadError.message)
+                console.error(`Failed to upload ${file.name}:`, uploadError)
+                failures.push(`${file.name}: ${uploadError.message}`)
                 continue
             }
             const { data: urlData } = supabase.storage.from('videos').getPublicUrl(data.path)
             urls.push(urlData.publicUrl)
         }
+        if (failures.length > 0) setError(`Could not add ${failures.length} file(s) — ${failures.join('; ')}`)
         return urls
     }
 
@@ -485,7 +507,8 @@ export default function DesignEditor({
                 .single()
 
             if (fetchError || !screen) {
-                setError('Could not load current slides — try again')
+                console.error('Failed to load current slides before saving a design:', fetchError)
+                setError(fetchError ? `Could not load current slides: ${fetchError.message}` : 'Could not load current slides — try again')
                 return
             }
 
@@ -504,7 +527,7 @@ export default function DesignEditor({
                 body: JSON.stringify({ slides: nextSlides }),
             })
             if (!res.ok) {
-                setError('Failed to save design')
+                setError(await responseError(res, 'Failed to save design'))
                 return
             }
             router.push(`/screens/${screenId}`)
@@ -564,6 +587,10 @@ export default function DesignEditor({
                                     ))}
                                 </div>
                             </>
+                        )}
+
+                        {templatesError && (
+                            <p className="text-xs text-red-600 mt-3">{templatesError}</p>
                         )}
                     </div>
                 </div>

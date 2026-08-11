@@ -1,4 +1,5 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
+import { NO_ROWS } from '@/lib/supabase/errors'
 
 export type OrgRole = 'owner' | 'member'
 
@@ -15,24 +16,34 @@ export type OrgRole = 'owner' | 'member'
  * they never intended to use — so membership wins when both exist. Their
  * personal org still exists in the background (and is still subject to
  * the free-trial lifecycle timer) but the dashboard won't surface it.
+ *
+ * Returns null only when the user genuinely has neither; a failed lookup
+ * throws, so callers can't mistake a database error for "no org" (which
+ * would otherwise auto-create a duplicate org on the dashboard).
  */
 export async function resolveOrgId(
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     supabase: SupabaseClient<any>,
     userId: string
 ): Promise<{ orgId: string; role: OrgRole } | null> {
-    const { data: membership } = await supabase
+    const { data: membership, error: membershipError } = await supabase
         .from('org_members')
         .select('org_id')
         .eq('user_id', userId)
         .single()
+    if (membershipError && membershipError.code !== NO_ROWS) {
+        throw new Error(`Failed to look up org membership: ${membershipError.message}`)
+    }
     if (membership) return { orgId: membership.org_id, role: 'member' }
 
-    const { data: owned } = await supabase
+    const { data: owned, error: ownedError } = await supabase
         .from('organisations')
         .select('id')
         .eq('owner_id', userId)
         .single()
+    if (ownedError && ownedError.code !== NO_ROWS) {
+        throw new Error(`Failed to look up owned org: ${ownedError.message}`)
+    }
     if (owned) return { orgId: owned.id, role: 'owner' }
 
     return null

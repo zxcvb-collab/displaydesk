@@ -17,7 +17,12 @@ export async function createClient() {
                         cookiesToSet.forEach(({ name, value, options }) =>
                             cookieStore.set(name, value, options)
                         )
-                    } catch { }
+                    } catch {
+                        // Server Components can't write cookies, and Supabase
+                        // calls this on every token refresh — the middleware
+                        // refresh path persists them instead, so this throw is
+                        // expected rather than a real failure
+                    }
                 },
             },
         }

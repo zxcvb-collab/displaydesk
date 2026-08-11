@@ -134,13 +134,21 @@ const faqJsonLd = {
 }
 
 export default async function HomePage() {
+    // `redirect()` signals by throwing, so it has to happen outside the
+    // try — inside it, the catch swallowed the redirect and served the
+    // marketing page to already-signed-in visitors. Only the session
+    // lookup is tolerated failing: an anonymous landing page still renders.
+    let user = null
     try {
         const supabase = await createClient()
-        const { data: { user } } = await supabase.auth.getUser()
-        if (user) redirect('/dashboard')
+        const { data, error } = await supabase.auth.getUser()
+        if (error) throw new Error(error.message)
+        user = data.user
     } catch (error) {
-        console.error('Root page error:', error)
+        console.error('Root page session lookup failed:', error)
     }
+
+    if (user) redirect('/dashboard')
 
     return (
         <div className="min-h-screen bg-zinc-50">
