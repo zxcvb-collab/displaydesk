@@ -2,7 +2,16 @@
 
 import { useEffect, useRef, useState, useCallback } from 'react'
 import { resolveEffectiveSchedule, isOpenNow, type ScheduleMode, type WeekSchedule } from '@/lib/schedule'
-import { CANVAS_WIDTH, CANVAS_HEIGHT, DEFAULT_DURATION_SECONDS, DEFAULT_IMAGE_INTERVAL_SECONDS, imageUrls, findMergeAt, isMergedAway, columnBadgeColor, cellFontSize, fontFamilyCssVar, type DesignData, type ImageElement } from '@/lib/design'
+import { DEFAULT_DURATION_SECONDS, DEFAULT_IMAGE_INTERVAL_SECONDS, imageUrls, findMergeAt, isMergedAway, columnBadgeColor, type ImageElement } from '@/lib/design'
+import {
+    cellBadgeStyle,
+    designBackgroundStyle,
+    elementBoxStyle,
+    tableCellStyle,
+    tableElementStyle,
+    textElementStyle,
+} from '@/lib/design/render'
+import { getYouTubeId, type Slide } from '@/lib/slides'
 
 declare global {
     interface Window {
@@ -10,28 +19,6 @@ declare global {
         YT: any
         onYouTubeIframeAPIReady: () => void
     }
-}
-
-function getYouTubeId(url: string): string | null {
-    const patterns = [
-        /youtu\.be\/([^?&#]+)/,
-        /[?&]v=([^&#]+)/,
-        /youtube\.com\/embed\/([^?&#]+)/,
-        /youtube\.com\/shorts\/([^?&#]+)/,
-    ]
-    for (const p of patterns) {
-        const m = url.match(p)
-        if (m) return m[1]
-    }
-    return null
-}
-
-type Slide = {
-    url?: string
-    type: 'youtube' | 'video' | 'design'
-    design?: DesignData
-    duration?: number
-    name?: string
 }
 
 // Cycles through an image element's urls on its own timer, independent of
@@ -594,36 +581,19 @@ export default function TVPlayer({
             {currentType === 'design' && currentSlide?.design && (
                 <div
                     className="fixed inset-0"
-                    style={{
-                        background: currentSlide.design.background.type === 'color' ? currentSlide.design.background.value : undefined,
-                        backgroundImage: currentSlide.design.background.type === 'image' ? `url(${currentSlide.design.background.url})` : undefined,
-                        backgroundSize: 'cover',
-                        backgroundPosition: 'center',
-                        containerType: 'size',
-                    } as React.CSSProperties}
+                    style={designBackgroundStyle(currentSlide.design.background)}
                 >
                     {currentSlide.design.elements.map((el) => {
-                        const style: React.CSSProperties = {
-                            position: 'absolute',
-                            left: `${(el.x / CANVAS_WIDTH) * 100}%`,
-                            top: `${(el.y / CANVAS_HEIGHT) * 100}%`,
-                            width: `${(el.width / CANVAS_WIDTH) * 100}%`,
-                            height: `${(el.height / CANVAS_HEIGHT) * 100}%`,
-                            transform: el.rotation ? `rotate(${el.rotation}deg)` : undefined,
-                        }
+                        const style = elementBoxStyle(el)
                         if (el.kind === 'text') {
                             return (
                                 <div
                                     key={el.id}
                                     style={{
                                         ...style,
-                                        fontSize: `${(el.fontSize / CANVAS_HEIGHT) * 100}cqh`,
-                                        fontFamily: fontFamilyCssVar(el.fontFamily),
-                                        color: el.color,
-                                        fontWeight: el.bold ? 700 : 400,
-                                        textAlign: el.align,
+                                        ...textElementStyle(el),
                                         whiteSpace: 'pre-wrap',
-                                    } as React.CSSProperties}
+                                    }}
                                 >
                                     {el.text}
                                 </div>
@@ -636,13 +606,7 @@ export default function TVPlayer({
                             return (
                                 <table
                                     key={el.id}
-                                    style={{
-                                        ...style,
-                                        borderCollapse: 'collapse',
-                                        fontSize: `${(el.fontSize / CANVAS_HEIGHT) * 100}cqh`,
-                                        fontFamily: fontFamilyCssVar(el.fontFamily),
-                                        color: el.color,
-                                    } as React.CSSProperties}
+                                    style={{ ...style, ...tableElementStyle(el) }}
                                 >
                                     <tbody>
                                         {el.rows.map((row, r) => (
@@ -655,16 +619,10 @@ export default function TVPlayer({
                                                         <td
                                                             key={c}
                                                             colSpan={merge?.colspan ?? 1}
-                                                            style={{
-                                                                border: `1px solid ${el.borderColor}`,
-                                                                padding: '0.3cqh 0.6cqw',
-                                                                fontSize: `${(cellFontSize(el, r, c) / CANVAS_HEIGHT) * 100}cqh`,
-                                                                fontWeight: r === 0 && el.headerRow ? 700 : 400,
-                                                                whiteSpace: 'pre-wrap',
-                                                            } as React.CSSProperties}
+                                                            style={tableCellStyle(el, r, c, { padding: '0.3cqh 0.6cqw' })}
                                                         >
                                                             {badgeColor ? (
-                                                                <span style={{ display: 'inline-block', border: `2px solid ${badgeColor}`, borderRadius: 999, padding: '2px 12px' }}>
+                                                                <span style={cellBadgeStyle(badgeColor)}>
                                                                     {cell}
                                                                 </span>
                                                             ) : (

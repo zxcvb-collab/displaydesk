@@ -22,7 +22,6 @@ import {
     isMergedAway,
     columnBadgeColor,
     cellFontSize,
-    fontFamilyCssVar,
     rotatedResizeDelta,
     type DesignData,
     type DesignElement,
@@ -32,23 +31,23 @@ import {
     type Rotation,
     type FontFamily,
 } from '@/lib/design'
+import {
+    cellBadgeStyle,
+    designBackgroundStyle,
+    elementBoxStyle,
+    tableCellStyle,
+    tableElementStyle,
+    textElementStyle,
+} from '@/lib/design/render'
 import { STARTER_TEMPLATES } from '@/lib/design/starter-templates'
+import { apiFetch, createDesignTemplate, fetchDesignTemplates, type SavedTemplate } from '@/lib/api/client'
+import { normalizeSlides, type Slide } from '@/lib/slides'
 
 // Snap increment in canvas units (the canvas is a fixed 1920x1080 grid) —
 // 20 units gives a fine enough grid to align menu rows/columns without
 // feeling sticky.
 const GRID_SIZE = 20
 const snapToGridValue = (value: number, enabled: boolean) => (enabled ? Math.round(value / GRID_SIZE) * GRID_SIZE : value)
-
-type Slide = {
-    url?: string
-    type: 'youtube' | 'video' | 'design'
-    design?: DesignData
-    duration?: number
-    name?: string
-}
-
-type SavedTemplate = { id: string; name: string; design: DesignData }
 
 // Miniature, non-interactive render of a design's elements, scaled to fit
 // whatever box it's placed in — used so the template picker shows what a
@@ -57,38 +56,20 @@ function DesignThumbnail({ design }: { design: DesignData }) {
     return (
         <div
             className="relative w-full aspect-video rounded-lg overflow-hidden"
-            style={{
-                background: design.background.type === 'color' ? design.background.value : '#27272a',
-                backgroundImage: design.background.type === 'image' ? `url(${design.background.url})` : undefined,
-                backgroundSize: 'cover',
-                backgroundPosition: 'center',
-                containerType: 'size',
-            } as React.CSSProperties}
+            style={designBackgroundStyle(design.background, '#27272a')}
         >
             {design.elements.map((el) => {
-                const style: React.CSSProperties = {
-                    position: 'absolute',
-                    left: `${(el.x / CANVAS_WIDTH) * 100}%`,
-                    top: `${(el.y / CANVAS_HEIGHT) * 100}%`,
-                    width: `${(el.width / CANVAS_WIDTH) * 100}%`,
-                    height: `${(el.height / CANVAS_HEIGHT) * 100}%`,
-                    overflow: 'hidden',
-                    transform: el.rotation ? `rotate(${el.rotation}deg)` : undefined,
-                }
+                const style = elementBoxStyle(el, { overflow: 'hidden' })
                 if (el.kind === 'text') {
                     return (
                         <div
                             key={el.id}
                             style={{
                                 ...style,
-                                fontSize: `${(el.fontSize / CANVAS_HEIGHT) * 100}cqh`,
-                                fontFamily: fontFamilyCssVar(el.fontFamily),
-                                color: el.color,
-                                fontWeight: el.bold ? 700 : 400,
-                                textAlign: el.align,
+                                ...textElementStyle(el),
                                 whiteSpace: 'pre-wrap',
                                 lineHeight: 1.1,
-                            } as React.CSSProperties}
+                            }}
                         >
                             {el.text}
                         </div>
@@ -104,13 +85,7 @@ function DesignThumbnail({ design }: { design: DesignData }) {
                     return (
                         <table
                             key={el.id}
-                            style={{
-                                ...style,
-                                borderCollapse: 'collapse',
-                                fontSize: `${(el.fontSize / CANVAS_HEIGHT) * 100}cqh`,
-                                fontFamily: fontFamilyCssVar(el.fontFamily),
-                                color: el.color,
-                            } as React.CSSProperties}
+                            style={{ ...style, ...tableElementStyle(el) }}
                         >
                             <tbody>
                                 {el.rows.map((row, r) => (
@@ -122,13 +97,7 @@ function DesignThumbnail({ design }: { design: DesignData }) {
                                                 <td
                                                     key={c}
                                                     colSpan={merge?.colspan ?? 1}
-                                                    style={{
-                                                        border: `1px solid ${el.borderColor}`,
-                                                        padding: '0.2cqh 0.4cqw',
-                                                        fontSize: `${(cellFontSize(el, r, c) / CANVAS_HEIGHT) * 100}cqh`,
-                                                        fontWeight: r === 0 && el.headerRow ? 700 : 400,
-                                                        whiteSpace: 'nowrap',
-                                                    } as React.CSSProperties}
+                                                    style={tableCellStyle(el, r, c, { padding: '0.2cqh 0.4cqw', whiteSpace: 'nowrap' })}
                                                 >
                                                     {cell}
                                                 </td>
@@ -189,10 +158,7 @@ export default function DesignEditor({
     useEffect(() => { snapToGridRef.current = snapToGrid }, [snapToGrid])
 
     useEffect(() => {
-        fetch('/api/design-templates')
-            .then((r) => r.json())
-            .then((d) => setTemplates(d.templates ?? []))
-            .catch(() => {})
+        fetchDesignTemplates().then(setTemplates).catch(() => {})
     }, [])
 
     const selected = design.elements.find((e) => e.id === selectedId) ?? null
@@ -249,13 +215,8 @@ export default function DesignEditor({
         if (!templateName || !templateName.trim()) return
         setSavingTemplate(true)
         try {
-            const res = await fetch('/api/design-templates', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ name: templateName.trim(), design }),
-            })
-            if (res.ok) {
-                const { template } = await res.json()
+            const template = await createDesignTemplate(templateName.trim(), design)
+            if (template) {
                 setTemplates((t) => [template, ...t])
             } else {
                 setError('Failed to save template')
@@ -489,7 +450,7 @@ export default function DesignEditor({
                 return
             }
 
-            const slides: Slide[] = Array.isArray(screen.slides) ? screen.slides : []
+            const slides = normalizeSlides(screen.slides)
             const nextSlide: Slide = { type: 'design', design, duration, name: name.trim() || undefined }
             const nextSlides = [...slides]
             if (slideIndex < nextSlides.length) {
@@ -498,11 +459,7 @@ export default function DesignEditor({
                 nextSlides.push(nextSlide)
             }
 
-            const res = await fetch(`/api/screens/${screenId}`, {
-                method: 'PATCH',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ slides: nextSlides }),
-            })
+            const res = await apiFetch(`/api/screens/${screenId}`, 'PATCH', { slides: nextSlides })
             if (!res.ok) {
                 setError('Failed to save design')
                 return
@@ -692,15 +649,11 @@ export default function DesignEditor({
                     onPointerDown={() => setSelectedId(null)}
                     className="relative bg-black shadow-2xl"
                     style={{
+                        ...designBackgroundStyle(design.background),
                         width: '100%',
                         maxWidth: `min(calc(90vh * ${(CANVAS_WIDTH / CANVAS_HEIGHT).toFixed(4)}), 100%)`,
                         aspectRatio: `${CANVAS_WIDTH} / ${CANVAS_HEIGHT}`,
-                        containerType: 'size',
-                        background: design.background.type === 'color' ? design.background.value : undefined,
-                        backgroundImage: design.background.type === 'image' ? `url(${design.background.url})` : undefined,
-                        backgroundSize: 'cover',
-                        backgroundPosition: 'center',
-                    } as React.CSSProperties}
+                    }}
                 >
                     {snapToGrid && (
                         <div
@@ -713,16 +666,10 @@ export default function DesignEditor({
                         />
                     )}
                     {design.elements.map((el) => {
-                        const style: React.CSSProperties = {
-                            position: 'absolute',
-                            left: `${(el.x / CANVAS_WIDTH) * 100}%`,
-                            top: `${(el.y / CANVAS_HEIGHT) * 100}%`,
-                            width: `${(el.width / CANVAS_WIDTH) * 100}%`,
-                            height: `${(el.height / CANVAS_HEIGHT) * 100}%`,
+                        const style = elementBoxStyle(el, {
                             outline: selectedId === el.id ? '2px solid #3b82f6' : 'none',
                             cursor: 'move',
-                            transform: el.rotation ? `rotate(${el.rotation}deg)` : undefined,
-                        }
+                        })
 
                         return (
                             <div key={el.id} style={style} onPointerDown={(e) => onElementPointerDown(e, el)}>
@@ -734,25 +681,13 @@ export default function DesignEditor({
                                             onChange={(e) => updateElement(el.id, { text: e.target.value })}
                                             onBlur={() => setEditingTextId(null)}
                                             className="w-full h-full bg-transparent resize-none outline-none"
-                                            style={{
-                                                fontSize: `${(el.fontSize / CANVAS_HEIGHT) * 100}cqh`,
-                                                fontFamily: fontFamilyCssVar(el.fontFamily),
-                                                color: el.color,
-                                                fontWeight: el.bold ? 700 : 400,
-                                                textAlign: el.align,
-                                            }}
+                                            style={textElementStyle(el)}
                                         />
                                     ) : (
                                         <div
                                             onDoubleClick={() => setEditingTextId(el.id)}
                                             className="w-full h-full whitespace-pre-wrap"
-                                            style={{
-                                                fontSize: `${(el.fontSize / CANVAS_HEIGHT) * 100}cqh`,
-                                                fontFamily: fontFamilyCssVar(el.fontFamily),
-                                                color: el.color,
-                                                fontWeight: el.bold ? 700 : 400,
-                                                textAlign: el.align,
-                                            }}
+                                            style={textElementStyle(el)}
                                         >
                                             {el.text}
                                         </div>
@@ -773,11 +708,7 @@ export default function DesignEditor({
                                 {el.kind === 'table' && (
                                     <table
                                         className="w-full h-full border-collapse"
-                                        style={{
-                                            fontSize: `${(el.fontSize / CANVAS_HEIGHT) * 100}cqh`,
-                                            fontFamily: fontFamilyCssVar(el.fontFamily),
-                                            color: el.color,
-                                        }}
+                                        style={tableElementStyle(el)}
                                     >
                                         <tbody>
                                             {el.rows.map((row, r) => (
@@ -791,15 +722,10 @@ export default function DesignEditor({
                                                                 key={c}
                                                                 colSpan={merge?.colspan ?? 1}
                                                                 className="px-2 py-1"
-                                                                style={{
-                                                                    border: `1px solid ${el.borderColor}`,
-                                                                    fontSize: `${(cellFontSize(el, r, c) / CANVAS_HEIGHT) * 100}cqh`,
-                                                                    fontWeight: r === 0 && el.headerRow ? 700 : 400,
-                                                                    whiteSpace: 'pre-wrap',
-                                                                }}
+                                                                style={tableCellStyle(el, r, c)}
                                                             >
                                                                 {badgeColor ? (
-                                                                    <span style={{ display: 'inline-block', border: `2px solid ${badgeColor}`, borderRadius: 999, padding: '2px 12px' }}>
+                                                                    <span style={cellBadgeStyle(badgeColor)}>
                                                                         {cell}
                                                                     </span>
                                                                 ) : (

@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server'
 import { createAdminClient } from '@/lib/supabase/admin'
-import { stripe, PRICE_ID_TO_PLAN, isPaidPlan, syncScreenAddon } from '@/lib/stripe'
+import { jsonError } from '@/lib/api/server'
+import { stripe, PRICE_ID_TO_PLAN, syncScreenAddonForOrg } from '@/lib/stripe'
 import type Stripe from 'stripe'
 
 // Subscriptions can now have two line items (base plan + add-on screens) -
@@ -10,22 +11,12 @@ function findPlan(subscription: Stripe.Subscription) {
     return item ? PRICE_ID_TO_PLAN[item.price.id] : undefined
 }
 
-async function syncAddonForOrg(supabase: ReturnType<typeof createAdminClient>, orgId: string, plan: string, subscriptionId: string) {
-    if (!isPaidPlan(plan)) return
-    const { count } = await supabase.from('screens').select('*', { count: 'exact', head: true }).eq('org_id', orgId)
-    try {
-        await syncScreenAddon(subscriptionId, plan, count ?? 0)
-    } catch (err) {
-        console.error('Failed to sync screen add-on billing after plan change:', err)
-    }
-}
-
 export async function POST(request: Request) {
     const signature = request.headers.get('stripe-signature')
     const body = await request.text()
 
     if (!signature) {
-        return NextResponse.json({ error: 'Missing signature' }, { status: 400 })
+        return jsonError('Missing signature', 400)
     }
 
     let event: Stripe.Event
@@ -33,7 +24,7 @@ export async function POST(request: Request) {
         event = stripe.webhooks.constructEvent(body, signature, process.env.STRIPE_WEBHOOK_SECRET!)
     } catch (err) {
         console.error('Webhook signature verification failed:', err)
-        return NextResponse.json({ error: 'Invalid signature' }, { status: 400 })
+        return jsonError('Invalid signature', 400)
     }
 
     const supabase = createAdminClient()
@@ -62,7 +53,7 @@ export async function POST(request: Request) {
                 })
                 .eq('id', orgId)
 
-            await syncAddonForOrg(supabase, orgId, plan, subscriptionId)
+            await syncScreenAddonForOrg(supabase, orgId, plan, subscriptionId)
             break
         }
 
@@ -80,7 +71,7 @@ export async function POST(request: Request) {
 
             // Plan may have changed (e.g. Pro -> Starter), which changes
             // the included screen count — re-sync the add-on quantity
-            if (org) await syncAddonForOrg(supabase, org.id, plan, subscription.id)
+            if (org) await syncScreenAddonForOrg(supabase, org.id, plan, subscription.id)
             break
         }
 

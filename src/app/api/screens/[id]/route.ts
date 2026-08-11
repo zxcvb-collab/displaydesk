@@ -1,31 +1,12 @@
 import { NextResponse } from 'next/server'
-import { createClient } from '@/lib/supabase/server'
-import { isPaidPlan, syncScreenAddon } from '@/lib/stripe'
-import { resolveOrgId } from '@/lib/org'
-
-// Returns null (treated as unauthorized) for disabled orgs too — the
-// dashboard blocks access at the UI level, but mutating routes need their
-// own check since RLS is scoped to ownership, not lifecycle status. Owners
-// and members both get full screen-management access.
-async function getOrgForUser(supabase: Awaited<ReturnType<typeof createClient>>) {
-    const { data: { user } } = await supabase.auth.getUser()
-    if (!user) return null
-    const resolved = await resolveOrgId(supabase, user.id)
-    if (!resolved) return null
-    const { data: org } = await supabase
-        .from('organisations')
-        .select('id, status, plan, stripe_subscription_id')
-        .eq('id', resolved.orgId)
-        .single()
-    if (!org || org.status === 'disabled') return null
-    return org
-}
+import { jsonError, requireOrgRecord } from '@/lib/api/server'
+import { syncScreenAddonForOrg } from '@/lib/stripe'
 
 export async function PATCH(request: Request, { params }: { params: Promise<{ id: string }> }) {
     const { id } = await params
-    const supabase = await createClient()
-    const org = await getOrgForUser(supabase)
-    if (!org) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+    const auth = await requireOrgRecord()
+    if (!auth.ok) return auth.response
+    const { supabase, org } = auth.value
 
     const body = await request.json()
     const updates: Record<string, unknown> = {}
@@ -42,15 +23,15 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
         .select()
         .single()
 
-    if (error) return NextResponse.json({ error: error.message }, { status: 500 })
+    if (error) return jsonError(error.message, 500)
     return NextResponse.json(data)
 }
 
 export async function DELETE(_request: Request, { params }: { params: Promise<{ id: string }> }) {
     const { id } = await params
-    const supabase = await createClient()
-    const org = await getOrgForUser(supabase)
-    if (!org) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+    const auth = await requireOrgRecord()
+    if (!auth.ok) return auth.response
+    const { supabase, org } = auth.value
 
     const { error } = await supabase
         .from('screens')
@@ -58,19 +39,9 @@ export async function DELETE(_request: Request, { params }: { params: Promise<{ 
         .eq('id', id)
         .eq('org_id', org.id)
 
-    if (error) return NextResponse.json({ error: error.message }, { status: 500 })
+    if (error) return jsonError(error.message, 500)
 
-    if (isPaidPlan(org.plan) && org.stripe_subscription_id) {
-        try {
-            const { count } = await supabase
-                .from('screens')
-                .select('*', { count: 'exact', head: true })
-                .eq('org_id', org.id)
-            await syncScreenAddon(org.stripe_subscription_id, org.plan, count ?? 0)
-        } catch (err) {
-            console.error('Failed to sync screen add-on billing:', err)
-        }
-    }
+    await syncScreenAddonForOrg(supabase, org.id, org.plan, org.stripe_subscription_id)
 
     return NextResponse.json({ success: true })
 }

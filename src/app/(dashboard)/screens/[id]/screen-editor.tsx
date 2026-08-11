@@ -9,15 +9,8 @@ import { Input } from '@/components/ui/input'
 import { Badge } from '@/components/ui/badge'
 import WeekScheduleEditor from '@/components/week-schedule-editor'
 import { emptySchedule, type ScheduleMode, type WeekSchedule } from '@/lib/schedule'
-import type { DesignData } from '@/lib/design'
-
-type Slide = {
-    url?: string
-    type: 'youtube' | 'video' | 'design'
-    design?: DesignData
-    duration?: number
-    name?: string
-}
+import { extractStoragePath, getYouTubeId, videoStoragePaths, type Slide } from '@/lib/slides'
+import { apiFetch, patchScreen } from '@/lib/api/client'
 
 type Screen = {
     id: string
@@ -34,36 +27,6 @@ type ActivityEntry = {
     detail: string | null
     actor_email: string | null
     created_at: string
-}
-
-function getYouTubeId(url: string): string | null {
-    const patterns = [
-        /youtu\.be\/([^?&#]+)/,
-        /[?&]v=([^&#]+)/,
-        /youtube\.com\/embed\/([^?&#]+)/,
-        /youtube\.com\/shorts\/([^?&#]+)/,
-    ]
-    for (const p of patterns) {
-        const m = url.match(p)
-        if (m) return m[1]
-    }
-    return null
-}
-
-async function patchScreen(id: string, updates: { name?: string; slides?: Slide[]; schedule_mode?: ScheduleMode; schedule?: WeekSchedule | null }) {
-    const res = await fetch(`/api/screens/${id}`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(updates),
-    })
-    if (!res.ok) throw new Error('Failed to save')
-}
-
-function extractStoragePath(publicUrl: string): string | null {
-    const marker = '/object/public/videos/'
-    const idx = publicUrl.indexOf(marker)
-    if (idx === -1) return null
-    return decodeURIComponent(publicUrl.slice(idx + marker.length))
 }
 
 export default function ScreenEditor({
@@ -240,14 +203,12 @@ export default function ScreenEditor({
 
         setDeleting(true)
         try {
-            const paths = videoSlides
-                .map((s) => extractStoragePath(s.url ?? ''))
-                .filter((p): p is string => p !== null)
+            const paths = videoStoragePaths(videoSlides)
             if (paths.length > 0) {
                 await supabase.storage.from('videos').remove(paths)
             }
 
-            await fetch(`/api/screens/${screen.id}`, { method: 'DELETE' })
+            await apiFetch(`/api/screens/${screen.id}`, 'DELETE')
             router.push('/dashboard')
             router.refresh()
         } finally {

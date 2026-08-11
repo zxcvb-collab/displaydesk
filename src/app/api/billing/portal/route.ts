@@ -1,12 +1,12 @@
 import { NextResponse } from 'next/server'
-import { createClient } from '@/lib/supabase/server'
+import { jsonError, requireUser } from '@/lib/api/server'
 import { stripe } from '@/lib/stripe'
 
 export async function POST(request: Request) {
     const origin = new URL(request.url).origin
-    const supabase = await createClient()
-    const { data: { user } } = await supabase.auth.getUser()
-    if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+    const auth = await requireUser()
+    if (!auth.ok) return auth.response
+    const { supabase, user } = auth.value
 
     const { data: org } = await supabase
         .from('organisations')
@@ -15,7 +15,7 @@ export async function POST(request: Request) {
         .single()
 
     if (!org?.stripe_customer_id) {
-        return NextResponse.json({ error: 'No billing account found' }, { status: 404 })
+        return jsonError('No billing account found', 404)
     }
 
     const session = await stripe.billingPortal.sessions.create({
