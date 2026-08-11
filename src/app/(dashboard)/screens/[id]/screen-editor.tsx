@@ -178,7 +178,7 @@ export default function ScreenEditor({
 
         setUploading(true)
         try {
-            const ext = file.name.split('.').pop() || 'mp4'
+            const ext = (file.name.split('.').pop() ?? '').replace(/[^a-zA-Z0-9]/g, '').slice(0, 8) || 'mp4'
             const path = `${orgId}/${screen.id}/${Date.now()}.${ext}`
 
             const { data, error } = await supabase.storage

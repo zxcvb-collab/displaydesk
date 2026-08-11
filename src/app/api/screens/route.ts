@@ -2,9 +2,14 @@ import { NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { includedScreens, isPaidPlan, syncScreenAddon } from '@/lib/stripe'
 import { resolveOrgId } from '@/lib/org'
+import { isSameOrigin } from '@/lib/security'
 
 export async function POST(request: Request) {
     const origin = new URL(request.url).origin
+    if (!isSameOrigin(request)) {
+        return NextResponse.json({ error: 'Invalid request origin' }, { status: 403 })
+    }
+
     const supabase = await createClient()
     const { data: { user } } = await supabase.auth.getUser()
     if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
@@ -42,7 +47,10 @@ export async function POST(request: Request) {
         .select()
         .single()
 
-    if (error) return NextResponse.json({ error: error.message }, { status: 500 })
+    if (error) {
+        console.error('Failed to create screen:', error)
+        return NextResponse.json({ error: 'Failed to create screen' }, { status: 500 })
+    }
 
     if (isPaidPlan(org.plan) && org.stripe_subscription_id) {
         try {

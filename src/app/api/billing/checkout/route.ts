@@ -1,10 +1,15 @@
 import { NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { stripe, PLAN_PRICE_IDS, isPaidPlan } from '@/lib/stripe'
+import { isSameOrigin } from '@/lib/security'
 
 export async function POST(request: Request) {
     const url = new URL(request.url)
     const origin = url.origin
+    if (!isSameOrigin(request)) {
+        return NextResponse.json({ error: 'Invalid request origin' }, { status: 403 })
+    }
+
     const supabase = await createClient()
     const { data: { user } } = await supabase.auth.getUser()
     if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })

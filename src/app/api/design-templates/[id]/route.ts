@@ -1,8 +1,13 @@
 import { NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { resolveOrgId } from '@/lib/org'
+import { isSameOrigin } from '@/lib/security'
 
 export async function DELETE(request: Request, { params }: { params: Promise<{ id: string }> }) {
+    if (!isSameOrigin(request)) {
+        return NextResponse.json({ error: 'Invalid request origin' }, { status: 403 })
+    }
+
     const { id } = await params
     const supabase = await createClient()
     const { data: { user } } = await supabase.auth.getUser()
@@ -17,6 +22,9 @@ export async function DELETE(request: Request, { params }: { params: Promise<{ i
         .eq('id', id)
         .eq('org_id', resolved.orgId)
 
-    if (error) return NextResponse.json({ error: error.message }, { status: 500 })
+    if (error) {
+        console.error('Failed to delete design template:', error)
+        return NextResponse.json({ error: 'Failed to delete design template' }, { status: 500 })
+    }
     return NextResponse.json({ ok: true })
 }
