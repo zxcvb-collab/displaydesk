@@ -1,3 +1,4 @@
+import { timingSafeEqual } from 'node:crypto'
 import { NextResponse } from 'next/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import {
@@ -13,6 +14,24 @@ const DISABLE_DAYS = 90
 const DELETION_WARNING_DAYS = 255 // 15 days before the 270-day delete cutoff
 const DELETION_DAYS = 270
 
+// A plain `!==` against `Bearer ${process.env.CRON_SECRET}` authenticates
+// the literal string "Bearer undefined" whenever CRON_SECRET is unset,
+// which would expose this destructive endpoint (disables orgs, deletes
+// videos, orgs and auth users) to anyone. Refuse to run without a secret,
+// and compare in constant time.
+function isAuthorized(request: Request): boolean {
+    const secret = process.env.CRON_SECRET
+    if (!secret) {
+        console.error('CRON_SECRET is not set — refusing to run the lifecycle job')
+        return false
+    }
+    const provided = request.headers.get('authorization') ?? ''
+    const expected = `Bearer ${secret}`
+    const providedBuf = Buffer.from(provided)
+    const expectedBuf = Buffer.from(expected)
+    return providedBuf.length === expectedBuf.length && timingSafeEqual(providedBuf, expectedBuf)
+}
+
 function daysSince(dateStr: string): number {
     return (Date.now() - new Date(dateStr).getTime()) / DAY_MS
 }
@@ -25,8 +44,7 @@ function extractStoragePath(publicUrl: string): string | null {
 }
 
 export async function GET(request: Request) {
-    const authHeader = request.headers.get('authorization')
-    if (authHeader !== `Bearer ${process.env.CRON_SECRET}`) {
+    if (!isAuthorized(request)) {
         return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     }
 

@@ -25,19 +25,14 @@ export async function middleware(request: NextRequest) {
 
     const { pathname } = request.nextUrl
 
-    // Log every middleware call to terminal
-    console.log(`[middleware] ${pathname} | user: ${user?.email ?? 'none'}`)
-
     const isAuthPage = pathname === '/login' || pathname === '/signup' || pathname === '/reset-password'
     const isDashboardPage = pathname.startsWith('/dashboard') || pathname.startsWith('/screens')
 
     if (!user && isDashboardPage) {
-        console.log(`[middleware] → redirecting to /login`)
         return NextResponse.redirect(new URL('/login', request.url))
     }
 
     if (user && isAuthPage) {
-        console.log(`[middleware] → redirecting to /dashboard`)
         return NextResponse.redirect(new URL('/dashboard', request.url))
     }
 

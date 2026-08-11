@@ -323,7 +323,7 @@ export default function DesignEditor({
         const urls: string[] = []
         for (const file of Array.from(files)) {
             if (!file.type.startsWith('image/')) continue
-            const ext = file.name.split('.').pop() || 'jpg'
+            const ext = (file.name.split('.').pop() ?? '').replace(/[^a-zA-Z0-9]/g, '').slice(0, 8) || 'jpg'
             const path = `${orgId}/${screenId}/design-images/${Date.now()}-${Math.random().toString(36).slice(2)}.${ext}`
             const { data, error: uploadError } = await supabase.storage
                 .from('videos')
