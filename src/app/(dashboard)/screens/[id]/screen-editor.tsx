@@ -17,6 +17,7 @@ type Slide = {
     design?: DesignData
     duration?: number
     name?: string
+    offlineImage?: string
 }
 
 type Screen = {
@@ -90,6 +91,9 @@ export default function ScreenEditor({
     const [scheduleSaved, setScheduleSaved] = useState(false)
     const nameRef = useRef(screen.name)
     const fileInputRef = useRef<HTMLInputElement>(null)
+    const offlineInputRef = useRef<HTMLInputElement>(null)
+    const offlineTargetIndex = useRef(-1)
+    const [offlineUploading, setOfflineUploading] = useState<number | null>(null)
     const [activity, setActivity] = useState<ActivityEntry[]>([])
     const actorEmailRef = useRef('')
 
@@ -218,8 +222,52 @@ export default function ScreenEditor({
             }
         }
 
+        await deleteStoredFile(slide.offlineImage)
         updateSlides(slides.filter((_, i) => i !== index))
         logActivity('delete', slide.url ?? 'design slide')
+    }
+
+    async function deleteStoredFile(publicUrl: string | undefined) {
+        const path = extractStoragePath(publicUrl ?? '')
+        if (path) await supabase.storage.from('videos').remove([path])
+    }
+
+    async function handleOfflineImage(e: React.ChangeEvent<HTMLInputElement>) {
+        const index = offlineTargetIndex.current
+        const file = e.target.files?.[0]
+        if (!file || index < 0) return
+        setUrlError('')
+        if (!file.type.startsWith('image/')) {
+            setUrlError('Please select an image file')
+            return
+        }
+        setOfflineUploading(index)
+        try {
+            const ext = file.name.split('.').pop() || 'jpg'
+            const path = `${orgId}/${screen.id}/offline-images/${Date.now()}.${ext}`
+            const { data, error } = await supabase.storage
+                .from('videos')
+                .upload(path, file, { upsert: false, cacheControl: '31536000' })
+            if (error) {
+                setUrlError(error.message || 'Upload failed')
+                return
+            }
+            const { data: urlData } = supabase.storage.from('videos').getPublicUrl(data.path)
+            await deleteStoredFile(slides[index]?.offlineImage)
+            updateSlides(slides.map((s, i) => (i === index ? { ...s, offlineImage: urlData.publicUrl } : s)))
+        } finally {
+            setOfflineUploading(null)
+            if (offlineInputRef.current) offlineInputRef.current.value = ''
+        }
+    }
+
+    async function removeOfflineImage(index: number) {
+        await deleteStoredFile(slides[index]?.offlineImage)
+        updateSlides(slides.map((s, i) => {
+            if (i !== index) return s
+            const { offlineImage: _removed, ...rest } = s
+            return rest
+        }))
     }
 
     function moveSlide(index: number, direction: -1 | 1) {
@@ -240,9 +288,10 @@ export default function ScreenEditor({
 
         setDeleting(true)
         try {
-            const paths = videoSlides
-                .map((s) => extractStoragePath(s.url ?? ''))
-                .filter((p): p is string => p !== null)
+            const paths = [
+                ...videoSlides.map((s) => extractStoragePath(s.url ?? '')),
+                ...slides.map((s) => extractStoragePath(s.offlineImage ?? '')),
+            ].filter((p): p is string => p !== null)
             if (paths.length > 0) {
                 await supabase.storage.from('videos').remove(paths)
             }
@@ -391,15 +440,39 @@ export default function ScreenEditor({
                                 </div>
 
                                 {videoId && (
-                                    <p className="mt-3 pt-3 border-t border-zinc-100 text-xs text-zinc-400">
-                                        If the TV loses internet during this video, it shows a static thumbnail instead of a frozen screen
-                                    </p>
+                                    <div className="mt-3 pt-3 border-t border-zinc-100 flex items-center gap-3">
+                                        {slide.offlineImage ? (
+                                            <img src={slide.offlineImage} alt="" className="w-16 h-9 object-cover rounded-md bg-zinc-100 shrink-0" />
+                                        ) : null}
+                                        <p className="flex-1 text-xs text-zinc-400">
+                                            {slide.offlineImage
+                                                ? 'Your image shows on the TV if it loses internet during this video.'
+                                                : 'If the TV loses internet, it shows YouTube’s thumbnail (max 1280×720, can look soft). Upload a 1920×1080 image for a sharper fallback.'}
+                                        </p>
+                                        <button
+                                            onClick={() => { offlineTargetIndex.current = i; offlineInputRef.current?.click() }}
+                                            disabled={offlineUploading === i}
+                                            className="px-2.5 py-1.5 rounded-lg border border-zinc-200 hover:bg-zinc-50 text-zinc-600 text-xs font-medium shrink-0 disabled:opacity-50"
+                                        >
+                                            {offlineUploading === i ? 'Uploading…' : slide.offlineImage ? 'Replace' : 'Upload image'}
+                                        </button>
+                                        {slide.offlineImage && (
+                                            <button
+                                                onClick={() => removeOfflineImage(i)}
+                                                className="text-xs text-zinc-400 hover:text-red-500 shrink-0"
+                                            >
+                                                Remove
+                                            </button>
+                                        )}
+                                    </div>
                                 )}
                             </div>
                         )
                     })}
                 </div>
             )}
+
+            <input ref={offlineInputRef} type="file" accept="image/*" onChange={handleOfflineImage} className="hidden" />
 
             {/* Add slide */}
             <div className="space-y-4">

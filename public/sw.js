@@ -26,7 +26,11 @@ function shouldHandle(url) {
         // image for YouTube slides — cross-origin, so the response comes
         // back opaque (status 0, ok: false) even on success; must be
         // cached unconditionally rather than gated on response.ok
-        url.hostname === 'img.youtube.com'
+        url.hostname === 'img.youtube.com' ||
+        // Owner-uploaded full-resolution offline images (Supabase storage,
+        // cross-origin → opaque, same unconditional caching as above).
+        // Path-scoped so large uploaded videos are never pulled through here.
+        url.pathname.includes('/offline-images/')
     )
 }
 

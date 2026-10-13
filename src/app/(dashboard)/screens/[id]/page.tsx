@@ -10,6 +10,7 @@ type Slide = {
     design?: DesignData
     duration?: number
     name?: string
+    offlineImage?: string
 }
 
 export const dynamic = 'force-dynamic'

@@ -32,6 +32,7 @@ type Slide = {
     design?: DesignData
     duration?: number
     name?: string
+    offlineImage?: string
 }
 
 // Cycles through an image element's urls on its own timer, independent of
@@ -325,8 +326,14 @@ export default function TVPlayer({
     useEffect(() => {
         let cancelled = false
         const ids = Array.from(new Set(
-            slides.filter((s) => s.type === 'youtube' && s.url).map((s) => getYouTubeId(s.url!)).filter((id): id is string => id !== null)
+            slides.filter((s) => s.type === 'youtube' && s.url && !s.offlineImage).map((s) => getYouTubeId(s.url!)).filter((id): id is string => id !== null)
         ))
+
+        // Owner-uploaded offline images are full-resolution; just warm them
+        // into the service worker cache so they're there when the net drops.
+        slides.forEach((s) => {
+            if (s.type === 'youtube' && s.offlineImage) fetch(s.offlineImage, { mode: 'no-cors' }).catch(() => {})
+        })
 
         ;(async () => {
             for (const id of ids) {
@@ -693,7 +700,7 @@ export default function TVPlayer({
                 a tiny placeholder for videos that don't have a real one. */}
             {showOfflineFallback && (
                 <img
-                    src={currentYouTubeId ? (resolvedThumbs[currentYouTubeId] ?? `https://img.youtube.com/vi/${currentYouTubeId}/hqdefault.jpg`) : ''}
+                    src={currentSlide?.offlineImage ?? (currentYouTubeId ? (resolvedThumbs[currentYouTubeId] ?? `https://img.youtube.com/vi/${currentYouTubeId}/hqdefault.jpg`) : '')}
                     alt=""
                     className="fixed inset-0 w-full h-full object-contain bg-black"
                 />
