@@ -188,6 +188,8 @@ export default function TVPlayer({
     const lastObjectUrl = useRef<string | null>(null)
     const handleVideoErrorRef = useRef<() => void>(() => {})
     const advanceSlideRef = useRef<() => void>(() => {})
+    const ytErrorRetries = useRef(0)
+    const ytErrorTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
 
     const [scheduleMode, setScheduleMode] = useState<ScheduleMode>(initialScheduleMode ?? 'inherit')
     const [schedule, setSchedule] = useState<WeekSchedule | null>(initialSchedule ?? null)
@@ -201,6 +203,8 @@ export default function TVPlayer({
     const orgStatusRef = useRef(orgStatus)
     useEffect(() => { orgStatusRef.current = orgStatus }, [orgStatus])
     const [isOnline, setIsOnline] = useState(() => typeof navigator === 'undefined' || navigator.onLine)
+    const isOnlineRef = useRef(isOnline)
+    useEffect(() => { isOnlineRef.current = isOnline }, [isOnline])
     const [resolvedThumbs, setResolvedThumbs] = useState<Record<string, string>>({})
 
     // Extract valid video IDs and uploaded videos
@@ -223,6 +227,12 @@ export default function TVPlayer({
             clearTimeout(designTimer.current)
             designTimer.current = null
         }
+
+        if (ytErrorTimer.current) {
+            clearTimeout(ytErrorTimer.current)
+            ytErrorTimer.current = null
+        }
+        ytErrorRetries.current = 0
 
         if (slide.type === 'youtube' && slide.url) {
             const videoId = getYouTubeId(slide.url)
@@ -510,6 +520,30 @@ export default function TVPlayer({
                     onReady: () => setReady(true),
                     onStateChange: (event: { data: number }) => {
                         if (event.data === 0) advanceSlide()
+                    },
+                    // Without this, a YouTube embed error ("An error occurred.
+                    // Please try again later.", or a video that's private /
+                    // removed / not embeddable) leaves the screen stuck on
+                    // YouTube's error page forever. Offline is handled by the
+                    // thumbnail fallback instead, so don't skip slides then.
+                    onError: (event: { data: number }) => {
+                        if (!isOnlineRef.current) return
+                        if (ytErrorTimer.current) clearTimeout(ytErrorTimer.current)
+                        // 2 = bad id, 100 = removed/private, 101/150 = embedding
+                        // disabled — retrying can't fix these, skip right away
+                        const permanent = [2, 100, 101, 150].includes(event.data)
+                        const shouldRetry = !permanent && ytErrorRetries.current < 1
+                        ytErrorRetries.current += 1
+                        ytErrorTimer.current = setTimeout(() => {
+                            ytErrorTimer.current = null
+                            if (shouldRetry) {
+                                const slide = slidesRef.current[currentIndex.current]
+                                const videoId = slide?.url ? getYouTubeId(slide.url) : null
+                                if (videoId) ytPlayer.current?.loadVideoById(videoId)
+                            } else {
+                                advanceSlide()
+                            }
+                        }, shouldRetry ? 3000 : 5000)
                     },
                 },
             })
