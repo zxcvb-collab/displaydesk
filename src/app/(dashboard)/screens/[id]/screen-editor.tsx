@@ -60,6 +60,44 @@ async function patchScreen(id: string, updates: { name?: string; slides?: Slide[
     if (!res.ok) throw new Error('Failed to save')
 }
 
+// supabase-js's upload() exposes no progress, so videos go through a signed
+// upload URL via XHR instead (same endpoint/format uploadToSignedUrl uses).
+// Resolves 'ok', 'cancelled', or a human-readable failure message.
+function putWithProgress(
+    url: string,
+    file: File,
+    headers: Record<string, string>,
+    onProgress: (pct: number) => void,
+    xhrRef: { current: XMLHttpRequest | null }
+): Promise<'ok' | 'cancelled' | string> {
+    return new Promise((resolve) => {
+        const xhr = new XMLHttpRequest()
+        xhrRef.current = xhr
+        xhr.open('PUT', url)
+        Object.entries(headers).forEach(([k, v]) => v && xhr.setRequestHeader(k, v))
+        xhr.setRequestHeader('x-upsert', 'false')
+        xhr.upload.onprogress = (e) => {
+            if (e.lengthComputable) onProgress(Math.round((e.loaded / e.total) * 100))
+        }
+        xhr.onload = () => {
+            if (xhr.status >= 200 && xhr.status < 300) return resolve('ok')
+            let detail = ''
+            try { detail = JSON.parse(xhr.responseText)?.message ?? '' } catch {}
+            if (xhr.status === 413 || /exceeded the maximum allowed size/i.test(detail)) {
+                return resolve(`This file is too large to upload (${(file.size / 1024 / 1024).toFixed(0)} MB). Try compressing the video or exporting at a lower quality.`)
+            }
+            resolve(detail || `Upload failed (error ${xhr.status})`)
+        }
+        xhr.onerror = () => resolve('Upload failed — check the internet connection and try again.')
+        xhr.ontimeout = () => resolve('Upload timed out — check the internet connection and try again.')
+        xhr.onabort = () => resolve('cancelled')
+        const body = new FormData()
+        body.append('cacheControl', '31536000')
+        body.append('', file)
+        xhr.send(body)
+    })
+}
+
 function extractStoragePath(publicUrl: string): string | null {
     const marker = '/object/public/videos/'
     const idx = publicUrl.indexOf(marker)
@@ -91,6 +129,11 @@ export default function ScreenEditor({
     const [scheduleSaved, setScheduleSaved] = useState(false)
     const nameRef = useRef(screen.name)
     const fileInputRef = useRef<HTMLInputElement>(null)
+    const [uploadProgress, setUploadProgress] = useState<number | null>(null)
+    const [uploadFileName, setUploadFileName] = useState('')
+    const [uploadDone, setUploadDone] = useState('')
+    const [uploadError, setUploadError] = useState('')
+    const uploadXhr = useRef<XMLHttpRequest | null>(null)
     const offlineInputRef = useRef<HTMLInputElement>(null)
     const offlineTargetIndex = useRef(-1)
     const [offlineUploading, setOfflineUploading] = useState<number | null>(null)
@@ -171,34 +214,56 @@ export default function ScreenEditor({
     }
 
     async function handleFileUpload(e: React.ChangeEvent<HTMLInputElement>) {
-        setUrlError('')
+        setUploadError('')
         const file = e.target.files?.[0]
         if (!file) return
 
         if (!file.type.startsWith('video/')) {
-            setUrlError('Please select a video file')
+            setUploadError('Please select a video file')
             return
         }
 
         setUploading(true)
+        setUploadProgress(0)
+        setUploadFileName(file.name)
+        setUploadDone('')
         try {
             const ext = file.name.split('.').pop() || 'mp4'
             const path = `${orgId}/${screen.id}/${Date.now()}.${ext}`
 
-            const { data, error } = await supabase.storage
+            const { data: signed, error: signError } = await supabase.storage
                 .from('videos')
-                .upload(path, file, { upsert: false, cacheControl: '31536000' })
+                .createSignedUploadUrl(path)
+            if (signError || !signed) {
+                setUploadError(signError?.message || 'Could not start the upload')
+                return
+            }
+            const { data: { session } } = await supabase.auth.getSession()
 
-            if (error) {
-                setUrlError(error.message || 'Upload failed')
+            const result = await putWithProgress(
+                signed.signedUrl,
+                file,
+                { apikey: process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ?? '', ...(session ? { Authorization: `Bearer ${session.access_token}` } : {}) },
+                (pct) => setUploadProgress(pct),
+                uploadXhr
+            )
+            if (result === 'cancelled') {
+                setUploadError('Upload cancelled')
+                return
+            }
+            if (result !== 'ok') {
+                setUploadError(result)
                 return
             }
 
-            const { data: urlData } = supabase.storage.from('videos').getPublicUrl(data.path)
+            const { data: urlData } = supabase.storage.from('videos').getPublicUrl(path)
             updateSlides([...slides, { url: urlData.publicUrl, type: 'video' }])
             logActivity('upload', file.name)
+            setUploadDone(file.name)
         } finally {
             setUploading(false)
+            setUploadProgress(null)
+            uploadXhr.current = null
             if (fileInputRef.current) fileInputRef.current.value = ''
         }
     }
@@ -506,6 +571,38 @@ export default function ScreenEditor({
                     >
                         {uploading ? 'Uploading…' : 'Choose video file'}
                     </Button>
+
+                    {uploading && uploadProgress !== null && (
+                        <div className="mt-3" role="status" aria-live="polite">
+                            <div className="flex items-center justify-between gap-3 text-xs text-zinc-600 mb-1.5">
+                                <span className="truncate">{uploadFileName}</span>
+                                <span className="tabular-nums shrink-0">
+                                    {uploadProgress >= 100 ? 'Finishing up…' : `${uploadProgress}%`}
+                                </span>
+                            </div>
+                            <div className="h-2 rounded-full bg-zinc-100 overflow-hidden">
+                                <div
+                                    className="h-full rounded-full bg-zinc-900 transition-[width] duration-200"
+                                    style={{ width: `${uploadProgress}%` }}
+                                />
+                            </div>
+                            <div className="flex items-center justify-between mt-1.5">
+                                <p className="text-xs text-zinc-400">Keep this page open until the upload finishes.</p>
+                                <button
+                                    onClick={() => uploadXhr.current?.abort()}
+                                    className="text-xs text-zinc-400 hover:text-red-500"
+                                >
+                                    Cancel
+                                </button>
+                            </div>
+                        </div>
+                    )}
+                    {!uploading && uploadDone && !uploadError && (
+                        <p className="mt-3 text-xs text-green-700" role="status">Uploaded {uploadDone}</p>
+                    )}
+                    {!uploading && uploadError && (
+                        <p className="mt-3 text-sm text-red-600" role="alert">{uploadError}</p>
+                    )}
                 </div>
 
                 <div className="bg-white border border-zinc-200 rounded-2xl p-4">
