@@ -42,7 +42,7 @@ const snapToGridValue = (value: number, enabled: boolean) => (enabled ? Math.rou
 
 type Slide = {
     url?: string
-    type: 'youtube' | 'video' | 'design'
+    type: 'youtube' | 'video' | 'design' | 'image'
     design?: DesignData
     duration?: number
     name?: string

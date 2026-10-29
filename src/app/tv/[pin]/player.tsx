@@ -28,7 +28,7 @@ function getYouTubeId(url: string): string | null {
 
 type Slide = {
     url?: string
-    type: 'youtube' | 'video' | 'design'
+    type: 'youtube' | 'video' | 'design' | 'image'
     design?: DesignData
     duration?: number
     name?: string
@@ -177,7 +177,7 @@ export default function TVPlayer({
     const ytPlayer = useRef<any>(null)
     const [slides, setSlides] = useState(initialSlides)
     const [ready, setReady] = useState(false)
-    const [currentType, setCurrentType] = useState<'youtube' | 'video' | 'design' | null>(null)
+    const [currentType, setCurrentType] = useState<'youtube' | 'video' | 'design' | 'image' | null>(null)
     const currentTypeRef = useRef(currentType)
     useEffect(() => { currentTypeRef.current = currentType }, [currentType])
     const designTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
@@ -275,7 +275,7 @@ export default function TVPlayer({
                     handleVideoErrorRef.current()
                 })
             }
-        } else if (slide.type === 'design') {
+        } else if (slide.type === 'design' || slide.type === 'image') {
             // No natural "ended" event like video has — advance on a timer
             // instead, using the duration set in the design editor
             const seconds = slide.duration ?? DEFAULT_DURATION_SECONDS
@@ -423,6 +423,7 @@ export default function TVPlayer({
         // into the service worker cache so they're there when the net drops.
         slides.forEach((s) => {
             if ((s.type === 'youtube' || s.type === 'video') && s.offlineImage) fetch(s.offlineImage, { mode: 'no-cors' }).catch(() => {})
+            if (s.type === 'image' && s.url) fetch(s.url, { mode: 'no-cors' }).catch(() => {})
         })
 
         ;(async () => {
@@ -458,7 +459,7 @@ export default function TVPlayer({
             videoRef.current?.pause()
             ytPlayer.current?.pauseVideo?.()
         } else if (started) {
-            if (currentTypeRef.current === 'design') {
+            if (currentTypeRef.current === 'design' || currentTypeRef.current === 'image') {
                 playSlideIndex(currentIndex.current, slidesRef.current)
             } else {
                 videoRef.current?.play().catch(() => {})
@@ -478,7 +479,7 @@ export default function TVPlayer({
             videoRef.current?.pause()
             ytPlayer.current?.pauseVideo?.()
         } else if (started && isOpen) {
-            if (currentTypeRef.current === 'design') {
+            if (currentTypeRef.current === 'design' || currentTypeRef.current === 'image') {
                 playSlideIndex(currentIndex.current, slidesRef.current)
             } else {
                 videoRef.current?.play().catch(() => {})
@@ -701,10 +702,10 @@ export default function TVPlayer({
 
     return (
         <div ref={containerRef} className="fixed inset-0 bg-black">
-            <div ref={playerRef} className={`w-full h-full ${currentType === 'video' || currentType === 'design' ? 'hidden' : ''}`} />
+            <div ref={playerRef} className={`w-full h-full ${currentType === 'video' || currentType === 'design' || currentType === 'image' ? 'hidden' : ''}`} />
             <video
                 ref={videoRef}
-                className={`fixed inset-0 w-full h-full object-contain ${currentType === 'youtube' || currentType === 'design' ? 'hidden' : ''}`}
+                className={`fixed inset-0 w-full h-full object-contain ${currentType === 'youtube' || currentType === 'design' || currentType === 'image' ? 'hidden' : ''}`}
                 muted
                 onEnded={advanceSlide}
                 onError={handleVideoError}
@@ -719,6 +720,19 @@ export default function TVPlayer({
                     }, STALL_TIMEOUT_MS)
                 }}
             />
+
+            {/* Image-only slide — shown for its duration (timer set in
+                playSlideIndex, same as a design slide). A broken image
+                skips ahead instead of leaving a black screen. */}
+            {currentType === 'image' && currentSlide?.url && (
+                <img
+                    key={currentSlide.url}
+                    src={currentSlide.url}
+                    alt=""
+                    onError={() => failCurrentRef.current()}
+                    className="fixed inset-0 w-full h-full object-contain bg-black"
+                />
+            )}
 
             {/* Homegrown design slide — rendered live from structured data,
                 not a pre-rendered video. Same percentage-based scaling math

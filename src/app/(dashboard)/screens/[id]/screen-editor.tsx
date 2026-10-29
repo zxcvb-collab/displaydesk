@@ -13,7 +13,7 @@ import type { DesignData } from '@/lib/design'
 
 type Slide = {
     url?: string
-    type: 'youtube' | 'video' | 'design'
+    type: 'youtube' | 'video' | 'design' | 'image'
     design?: DesignData
     duration?: number
     name?: string
@@ -63,6 +63,8 @@ async function patchScreen(id: string, updates: { name?: string; slides?: Slide[
 // supabase-js's upload() exposes no progress, so videos go through a signed
 // upload URL via XHR instead (same endpoint/format uploadToSignedUrl uses).
 // Resolves 'ok', 'cancelled', or a human-readable failure message.
+const DEFAULT_IMAGE_SLIDE_SECONDS = 8
+
 function putWithProgress(
     url: string,
     file: File,
@@ -132,6 +134,9 @@ export default function ScreenEditor({
     const [uploadProgress, setUploadProgress] = useState<number | null>(null)
     const [uploadFileName, setUploadFileName] = useState('')
     const [uploadDone, setUploadDone] = useState('')
+    const [imageUploading, setImageUploading] = useState(false)
+    const [imageError, setImageError] = useState('')
+    const imageInputRef = useRef<HTMLInputElement>(null)
     const [uploadError, setUploadError] = useState('')
     const uploadXhr = useRef<XMLHttpRequest | null>(null)
     const offlineInputRef = useRef<HTMLInputElement>(null)
@@ -268,6 +273,38 @@ export default function ScreenEditor({
         }
     }
 
+    async function handleImageSlideUpload(e: React.ChangeEvent<HTMLInputElement>) {
+        setImageError('')
+        const file = e.target.files?.[0]
+        if (!file) return
+        if (!file.type.startsWith('image/')) {
+            setImageError('Please select an image file')
+            return
+        }
+        setImageUploading(true)
+        try {
+            const ext = file.name.split('.').pop() || 'jpg'
+            const path = `${orgId}/${screen.id}/slide-images/${Date.now()}.${ext}`
+            const { data, error } = await supabase.storage
+                .from('videos')
+                .upload(path, file, { upsert: false, cacheControl: '31536000' })
+            if (error) {
+                setImageError(error.message || 'Upload failed')
+                return
+            }
+            const { data: urlData } = supabase.storage.from('videos').getPublicUrl(data.path)
+            updateSlides([...slides, { url: urlData.publicUrl, type: 'image', duration: DEFAULT_IMAGE_SLIDE_SECONDS, name: file.name }])
+            logActivity('upload', file.name)
+        } finally {
+            setImageUploading(false)
+            if (imageInputRef.current) imageInputRef.current.value = ''
+        }
+    }
+
+    function setSlideDuration(index: number, seconds: number) {
+        updateSlides(slides.map((s, i) => (i === index ? { ...s, duration: Math.max(2, seconds || DEFAULT_IMAGE_SLIDE_SECONDS) } : s)))
+    }
+
     async function removeSlide(index: number) {
         const slide = slides[index]
 
@@ -287,6 +324,10 @@ export default function ScreenEditor({
             }
         }
 
+        if (slide.type === 'image' && slide.url) {
+            if (!confirm('This will permanently delete the uploaded image from storage. This cannot be undone. Continue?')) return
+            await deleteStoredFile(slide.url)
+        }
         await deleteStoredFile(slide.offlineImage)
         updateSlides(slides.filter((_, i) => i !== index))
         logActivity('delete', slide.url ?? 'design slide')
@@ -344,9 +385,9 @@ export default function ScreenEditor({
     }
 
     async function deleteScreen() {
-        const videoSlides = slides.filter((s) => s.type === 'video')
+        const videoSlides = slides.filter((s) => s.type === 'video' || s.type === 'image')
         const message = videoSlides.length > 0
-            ? `Delete this screen? This will also permanently delete ${videoSlides.length} uploaded video file${videoSlides.length > 1 ? 's' : ''} from storage. This cannot be undone.`
+            ? `Delete this screen? This will also permanently delete ${videoSlides.length} uploaded file${videoSlides.length > 1 ? 's' : ''} from storage. This cannot be undone.`
             : 'Delete this screen? This cannot be undone.'
 
         if (!confirm(message)) return
@@ -433,6 +474,7 @@ export default function ScreenEditor({
                         const videoId = slide.type === 'youtube' && slide.url ? getYouTubeId(slide.url) : null
                         const isUploaded = slide.type === 'video'
                         const isDesign = slide.type === 'design'
+                        const isImage = slide.type === 'image'
                         return (
                             <div
                                 key={i}
@@ -445,6 +487,8 @@ export default function ScreenEditor({
                                             alt=""
                                             className="w-24 h-14 object-cover rounded-lg shrink-0 bg-zinc-100"
                                         />
+                                    ) : isImage && slide.url ? (
+                                        <img src={slide.url} alt="" className="w-24 h-14 object-cover rounded-lg shrink-0 bg-zinc-100" />
                                     ) : isUploaded ? (
                                         <div className="w-24 h-14 bg-gradient-to-br from-blue-400 to-blue-600 rounded-lg shrink-0 flex items-center justify-center">
                                             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2" strokeLinecap="round"><path d="M23 7l-7 5 7 5V7z" /><rect x="1" y="5" width="15" height="14" rx="2" ry="2" /></svg>
@@ -463,13 +507,28 @@ export default function ScreenEditor({
                                         <p className="text-sm text-zinc-600 truncate font-mono">
                                             {isDesign
                                                 ? slide.name || `Design (${slide.design?.elements.length ?? 0} elements)`
-                                                : slide.url}
+                                                : isImage
+                                                    ? slide.name || 'Image'
+                                                    : slide.url}
                                         </p>
                                         <p className="text-xs text-zinc-400 mt-0.5">
-                                            {slide.type === 'youtube' ? 'YouTube' : slide.type === 'video' ? 'Uploaded' : 'Design'}
+                                            {slide.type === 'youtube' ? 'YouTube' : slide.type === 'video' ? 'Uploaded' : slide.type === 'image' ? 'Image' : 'Design'}
                                         </p>
                                     </div>
                                     <div className="flex items-center gap-1 shrink-0">
+                                        {isImage && (
+                                            <label className="flex items-center gap-1 mr-1 text-xs text-zinc-400">
+                                                <input
+                                                    type="number"
+                                                    min={2}
+                                                    defaultValue={slide.duration ?? DEFAULT_IMAGE_SLIDE_SECONDS}
+                                                    onBlur={(e) => setSlideDuration(i, Number(e.target.value))}
+                                                    aria-label="Seconds on screen"
+                                                    className="w-14 px-1.5 py-1 border border-zinc-200 rounded-md text-xs text-zinc-700"
+                                                />
+                                                sec
+                                            </label>
+                                        )}
                                         {isDesign && (
                                             <Link
                                                 href={`/screens/${screen.id}/design/${i}`}
@@ -605,6 +664,25 @@ export default function ScreenEditor({
                     {!uploading && uploadError && (
                         <p className="mt-3 text-sm text-red-600" role="alert">{uploadError}</p>
                     )}
+                </div>
+
+                <div className="bg-white border border-zinc-200 rounded-2xl p-4">
+                    <p className="text-sm font-medium text-zinc-700 mb-1">Or upload an image</p>
+                    <p className="text-xs text-zinc-500 mb-3">
+                        For menus that are just a picture — a 1920×1080 image fills the screen. Set how long it stays up after adding it.
+                    </p>
+                    <input
+                        ref={imageInputRef}
+                        type="file"
+                        accept="image/*"
+                        onChange={handleImageSlideUpload}
+                        disabled={imageUploading}
+                        className="hidden"
+                    />
+                    <Button onClick={() => imageInputRef.current?.click()} disabled={imageUploading}>
+                        {imageUploading ? 'Uploading…' : 'Choose image'}
+                    </Button>
+                    {imageError && <p className="mt-3 text-sm text-red-600" role="alert">{imageError}</p>}
                 </div>
 
                 <div className="bg-white border border-zinc-200 rounded-2xl p-4">

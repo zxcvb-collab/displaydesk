@@ -30,7 +30,8 @@ function shouldHandle(url) {
         // Owner-uploaded full-resolution offline images (Supabase storage,
         // cross-origin → opaque, same unconditional caching as above).
         // Path-scoped so large uploaded videos are never pulled through here.
-        url.pathname.includes('/offline-images/')
+        url.pathname.includes('/offline-images/') ||
+        url.pathname.includes('/slide-images/')
     )
 }
 

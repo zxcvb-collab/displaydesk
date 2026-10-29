@@ -87,8 +87,10 @@ export async function GET(request: Request) {
             const { data: screens } = await supabase.from('screens').select('slides').eq('org_id', org.id)
             const storagePaths = (screens ?? [])
                 .flatMap((s) => (Array.isArray(s.slides) ? s.slides : []))
-                .filter((slide: { type: string }) => slide.type === 'video')
-                .map((slide: { url: string }) => extractStoragePath(slide.url))
+                .flatMap((slide: { type: string; url?: string; offlineImage?: string }) => [
+                    slide.type === 'video' || slide.type === 'image' ? extractStoragePath(slide.url ?? '') : null,
+                    slide.offlineImage ? extractStoragePath(slide.offlineImage) : null,
+                ])
                 .filter((p): p is string => p !== null)
 
             if (storagePaths.length > 0) {
