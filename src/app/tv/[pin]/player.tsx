@@ -74,6 +74,9 @@ function getUploadedVideos(slides: Slide[]): string[] {
 // difference. Loading it as an actual Image and checking naturalWidth
 // (a real maxresdefault is 1280px wide; the placeholder is 120px) is the
 // standard way to detect this.
+const STALL_TIMEOUT_MS = 20_000
+const FAILED_IMAGE_SECONDS = 10
+
 function resolveBestThumbnail(videoId: string): Promise<string> {
     return new Promise((resolve) => {
         const maxresUrl = `https://img.youtube.com/vi/${videoId}/maxresdefault.jpg`
@@ -190,6 +193,15 @@ export default function TVPlayer({
     const advanceSlideRef = useRef<() => void>(() => {})
     const ytErrorRetries = useRef(0)
     const ytErrorTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+    const stallTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+    const failTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+    const failCurrentRef = useRef<() => void>(() => {})
+    const ytErrorHandlerRef = useRef<(code: number) => void>(() => {})
+    const startedRef = useRef(false)
+    useEffect(() => { startedRef.current = started }, [started])
+    // True while a slide's video failed/stalled and its owner-uploaded image
+    // is being shown in its place
+    const [videoFailed, setVideoFailed] = useState(false)
 
     const [scheduleMode, setScheduleMode] = useState<ScheduleMode>(initialScheduleMode ?? 'inherit')
     const [schedule, setSchedule] = useState<WeekSchedule | null>(initialSchedule ?? null)
@@ -228,21 +240,37 @@ export default function TVPlayer({
             designTimer.current = null
         }
 
-        if (ytErrorTimer.current) {
-            clearTimeout(ytErrorTimer.current)
-            ytErrorTimer.current = null
+        for (const t of [ytErrorTimer, stallTimer, failTimer]) {
+            if (t.current) {
+                clearTimeout(t.current)
+                t.current = null
+            }
         }
         ytErrorRetries.current = 0
+        setVideoFailed(false)
+
+        // A video that neither errors nor starts (frozen buffering, dead
+        // connection that never times out) never fires an error event —
+        // treat "not playing after 20s" as a failure ourselves
+        const armStallWatchdog = (onStall: () => void) => {
+            if (stallTimer.current) clearTimeout(stallTimer.current)
+            stallTimer.current = setTimeout(() => {
+                stallTimer.current = null
+                onStall()
+            }, STALL_TIMEOUT_MS)
+        }
 
         if (slide.type === 'youtube' && slide.url) {
             const videoId = getYouTubeId(slide.url)
             if (videoId && ytPlayer.current) {
                 ytPlayer.current.loadVideoById(videoId)
+                if (startedRef.current) armStallWatchdog(() => ytErrorHandlerRef.current(0))
             }
         } else if (slide.type === 'video' && slide.url) {
             if (videoRef.current) {
                 triedCacheFallback.current = false
                 videoRef.current.src = slide.url
+                armStallWatchdog(() => handleVideoErrorRef.current())
                 videoRef.current.play().catch(() => {
                     handleVideoErrorRef.current()
                 })
@@ -271,6 +299,58 @@ export default function TVPlayer({
 
     useEffect(() => { advanceSlideRef.current = advanceSlide }, [advanceSlide])
 
+    // The one place a video failure ends up. If the owner uploaded an image
+    // for this slide, show it for a few seconds (then move on; the video
+    // gets another try next loop). Otherwise just skip to the next slide.
+    // Silent while closed/disabled — the screen is intentionally black then.
+    useEffect(() => {
+        failCurrentRef.current = () => {
+            if (!isOpenRef.current || orgStatusRef.current === 'disabled') return
+            if (stallTimer.current) { clearTimeout(stallTimer.current); stallTimer.current = null }
+            const slide = slidesRef.current[currentIndex.current]
+            if (slide?.offlineImage) {
+                setVideoFailed(true)
+                if (failTimer.current) clearTimeout(failTimer.current)
+                failTimer.current = setTimeout(() => {
+                    failTimer.current = null
+                    advanceSlideRef.current()
+                }, FAILED_IMAGE_SECONDS * 1000)
+            } else {
+                advanceSlideRef.current()
+            }
+        }
+    }, [])
+
+    // YouTube failure from either an explicit onError or the stall watchdog
+    // (code 0). Permanent codes skip straight to the fallback; anything else
+    // gets one quiet retry first.
+    useEffect(() => {
+        ytErrorHandlerRef.current = (code: number) => {
+            if (!isOnlineRef.current) return
+            if (ytErrorTimer.current) clearTimeout(ytErrorTimer.current)
+            if (stallTimer.current) { clearTimeout(stallTimer.current); stallTimer.current = null }
+            const permanent = [2, 100, 101, 150].includes(code)
+            const shouldRetry = !permanent && ytErrorRetries.current < 1
+            ytErrorRetries.current += 1
+            ytErrorTimer.current = setTimeout(() => {
+                ytErrorTimer.current = null
+                if (shouldRetry) {
+                    const slide = slidesRef.current[currentIndex.current]
+                    const videoId = slide?.url ? getYouTubeId(slide.url) : null
+                    if (videoId) {
+                        ytPlayer.current?.loadVideoById(videoId)
+                        stallTimer.current = setTimeout(() => {
+                            stallTimer.current = null
+                            ytErrorHandlerRef.current(0)
+                        }, STALL_TIMEOUT_MS)
+                    }
+                } else {
+                    failCurrentRef.current()
+                }
+            }, shouldRetry ? 3000 : 2000)
+        }
+    }, [])
+
     // On a load/playback error, try the cached copy (if we have one) before
     // giving up and skipping to the next slide — this is what actually
     // survives a brief network blip mid-loop.
@@ -278,7 +358,7 @@ export default function TVPlayer({
         const slide = slidesRef.current[currentIndex.current]
 
         if (triedCacheFallback.current || !slide || slide.type !== 'video' || !slide.url || !videoRef.current) {
-            advanceSlide()
+            failCurrentRef.current()
             return
         }
         triedCacheFallback.current = true
@@ -297,9 +377,9 @@ export default function TVPlayer({
             videoRef.current.src = objectUrl
             await videoRef.current.play()
         } catch {
-            advanceSlide()
+            failCurrentRef.current()
         }
-    }, [advanceSlide])
+    }, [])
 
     useEffect(() => { handleVideoErrorRef.current = handleVideoError }, [handleVideoError])
 
@@ -342,7 +422,7 @@ export default function TVPlayer({
         // Owner-uploaded offline images are full-resolution; just warm them
         // into the service worker cache so they're there when the net drops.
         slides.forEach((s) => {
-            if (s.type === 'youtube' && s.offlineImage) fetch(s.offlineImage, { mode: 'no-cors' }).catch(() => {})
+            if ((s.type === 'youtube' || s.type === 'video') && s.offlineImage) fetch(s.offlineImage, { mode: 'no-cors' }).catch(() => {})
         })
 
         ;(async () => {
@@ -452,6 +532,13 @@ export default function TVPlayer({
         }
         if (currentType === 'youtube' && ytPlayer.current?.playVideo) {
             ytPlayer.current.playVideo()
+            // First slide never went through playSlideIndex's stall watchdog
+            // (it wasn't "started" yet) — arm it now
+            if (stallTimer.current) clearTimeout(stallTimer.current)
+            stallTimer.current = setTimeout(() => {
+                stallTimer.current = null
+                ytErrorHandlerRef.current(0)
+            }, STALL_TIMEOUT_MS)
         }
     }, [currentType])
 
@@ -520,31 +607,19 @@ export default function TVPlayer({
                     onReady: () => setReady(true),
                     onStateChange: (event: { data: number }) => {
                         if (event.data === 0) advanceSlide()
+                        if (event.data === 1) {
+                            // Playing — it loaded fine, cancel any stall/retry
+                            if (stallTimer.current) { clearTimeout(stallTimer.current); stallTimer.current = null }
+                            if (ytErrorTimer.current) { clearTimeout(ytErrorTimer.current); ytErrorTimer.current = null }
+                        } else if (event.data === 3 && startedRef.current && !stallTimer.current) {
+                            // Buffering — if it never recovers, treat as failed
+                            stallTimer.current = setTimeout(() => {
+                                stallTimer.current = null
+                                ytErrorHandlerRef.current(0)
+                            }, STALL_TIMEOUT_MS)
+                        }
                     },
-                    // Without this, a YouTube embed error ("An error occurred.
-                    // Please try again later.", or a video that's private /
-                    // removed / not embeddable) leaves the screen stuck on
-                    // YouTube's error page forever. Offline is handled by the
-                    // thumbnail fallback instead, so don't skip slides then.
-                    onError: (event: { data: number }) => {
-                        if (!isOnlineRef.current) return
-                        if (ytErrorTimer.current) clearTimeout(ytErrorTimer.current)
-                        // 2 = bad id, 100 = removed/private, 101/150 = embedding
-                        // disabled — retrying can't fix these, skip right away
-                        const permanent = [2, 100, 101, 150].includes(event.data)
-                        const shouldRetry = !permanent && ytErrorRetries.current < 1
-                        ytErrorRetries.current += 1
-                        ytErrorTimer.current = setTimeout(() => {
-                            ytErrorTimer.current = null
-                            if (shouldRetry) {
-                                const slide = slidesRef.current[currentIndex.current]
-                                const videoId = slide?.url ? getYouTubeId(slide.url) : null
-                                if (videoId) ytPlayer.current?.loadVideoById(videoId)
-                            } else {
-                                advanceSlide()
-                            }
-                        }, shouldRetry ? 3000 : 5000)
-                    },
+                    onError: (event: { data: number }) => ytErrorHandlerRef.current(event.data),
                 },
             })
         }
@@ -615,7 +690,14 @@ export default function TVPlayer({
     // --- Player ---
     const currentSlide = slides[currentIndex.current]
     const currentYouTubeId = currentType === 'youtube' && currentSlide?.url ? getYouTubeId(currentSlide.url) : null
-    const showOfflineFallback = !isOnline && currentType === 'youtube' && currentYouTubeId
+    // Fallback image: after a failure, only if the owner uploaded one (the
+    // player skips ahead otherwise); while offline, YouTube slides also fall
+    // back to YouTube's own thumbnail when no image was uploaded.
+    const showOfflineFallback =
+        (currentType === 'youtube' || currentType === 'video') &&
+        (videoFailed
+            ? !!currentSlide?.offlineImage
+            : !isOnline && currentType === 'youtube' && !!currentYouTubeId)
 
     return (
         <div ref={containerRef} className="fixed inset-0 bg-black">
@@ -626,6 +708,16 @@ export default function TVPlayer({
                 muted
                 onEnded={advanceSlide}
                 onError={handleVideoError}
+                onPlaying={() => {
+                    if (stallTimer.current) { clearTimeout(stallTimer.current); stallTimer.current = null }
+                }}
+                onWaiting={() => {
+                    if (stallTimer.current) clearTimeout(stallTimer.current)
+                    stallTimer.current = setTimeout(() => {
+                        stallTimer.current = null
+                        handleVideoErrorRef.current()
+                    }, STALL_TIMEOUT_MS)
+                }}
             />
 
             {/* Homegrown design slide — rendered live from structured data,

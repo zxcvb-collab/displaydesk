@@ -504,15 +504,17 @@ export default function ScreenEditor({
                                     </div>
                                 </div>
 
-                                {videoId && (
+                                {(videoId || isUploaded) && (
                                     <div className="mt-3 pt-3 border-t border-zinc-100 flex items-center gap-3">
                                         {slide.offlineImage ? (
                                             <img src={slide.offlineImage} alt="" className="w-16 h-9 object-cover rounded-md bg-zinc-100 shrink-0" />
                                         ) : null}
                                         <p className="flex-1 text-xs text-zinc-400">
                                             {slide.offlineImage
-                                                ? 'Your image shows on the TV if it loses internet during this video.'
-                                                : 'If the TV loses internet, it shows YouTube’s thumbnail (max 1280×720, can look soft). Upload a 1920×1080 image for a sharper fallback.'}
+                                                ? 'Your image shows on the TV if this video fails to load or the internet drops.'
+                                                : videoId
+                                                    ? 'If this video fails or the internet drops, the TV skips ahead (or shows YouTube’s soft 1280×720 thumbnail when offline). Upload a 1920×1080 image to show instead.'
+                                                    : 'If this video fails to load, the TV skips to the next slide. Upload a 1920×1080 image to show instead.'}
                                         </p>
                                         <button
                                             onClick={() => { offlineTargetIndex.current = i; offlineInputRef.current?.click() }}
