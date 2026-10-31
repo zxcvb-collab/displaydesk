@@ -269,11 +269,36 @@ export default function TVPlayer({
         } else if (slide.type === 'video' && slide.url) {
             if (videoRef.current) {
                 triedCacheFallback.current = false
-                videoRef.current.src = slide.url
                 armStallWatchdog(() => handleVideoErrorRef.current())
-                videoRef.current.play().catch(() => {
-                    handleVideoErrorRef.current()
-                })
+                const url = slide.url
+                const startPlayback = (src: string) => {
+                    if (!videoRef.current) return
+                    videoRef.current.src = src
+                    videoRef.current.play().catch(() => {
+                        handleVideoErrorRef.current()
+                    })
+                }
+                // Prefer the locally cached copy so a looping video costs
+                // Supabase egress once, not on every pass; stream from the
+                // network only the first time (the warm-cache effect saves it).
+                ;(async () => {
+                    let src = url
+                    try {
+                        const cache = await getMediaCache()
+                        const match = await cache?.match(url)
+                        if (match) {
+                            const objectUrl = URL.createObjectURL(await match.blob())
+                            if (lastObjectUrl.current) URL.revokeObjectURL(lastObjectUrl.current)
+                            lastObjectUrl.current = objectUrl
+                            src = objectUrl
+                        }
+                    } catch {
+                        // fall back to streaming
+                    }
+                    // Slide may have changed while the cache was read
+                    if (slidesRef.current[currentIndex.current]?.url !== url) return
+                    startPlayback(src)
+                })()
             }
         } else if (slide.type === 'design' || slide.type === 'image') {
             // No natural "ended" event like video has — advance on a timer
