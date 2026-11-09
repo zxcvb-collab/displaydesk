@@ -93,6 +93,10 @@ export default async function DashboardPage() {
     const isPaid = org.plan !== 'free'
     const extraScreens = Math.max(0, screenList.length - planLimit)
     const addonRate = { starter: 5, pro: 4, business: 3 }[org.plan as 'starter' | 'pro' | 'business'] ?? 0
+    // Mirrors the lifecycle cron's hard-delete cutoff (270 days from the
+    // free-trial clock) so users can see exactly how long their data is kept
+    const keepUntil = new Date(new Date(org.trial_started_at).getTime() + 270 * 24 * 60 * 60 * 1000)
+        .toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })
 
     const PLANS = [
         { id: 'starter', name: 'Starter', price: '$9/mo', screens: 2, addon: '+$5/screen' },
@@ -112,7 +116,21 @@ export default async function DashboardPage() {
                             ? 'Your screens are paused, but all your videos and settings are safe. Upgrade below to resume playback instantly.'
                             : 'Your screens are paused because the account owner has not upgraded yet. Ask them to upgrade to resume playback.'}
                     </p>
+                    <p className="text-xs text-zinc-500 mt-2">We&rsquo;ll keep your screens until {keepUntil}.</p>
                 </div>
+                {screenList.length > 0 && (
+                    <div className="mb-10">
+                        <p className="text-sm font-medium text-zinc-900 mb-2">Your saved screens ({screenList.length})</p>
+                        <ul className="bg-white border border-zinc-200 rounded-2xl divide-y divide-zinc-100">
+                            {screenList.map((screen) => (
+                                <li key={screen.id} className="px-4 py-3 text-sm text-zinc-700 flex items-center justify-between">
+                                    <span>{screen.name}</span>
+                                    <span className="text-xs text-zinc-400">Paused</span>
+                                </li>
+                            ))}
+                        </ul>
+                    </div>
+                )}
                 {isOwner && (
                 <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                     {PLANS.map((plan) => (
@@ -155,6 +173,14 @@ export default async function DashboardPage() {
                     </Button>
                 </form>
             </div>
+
+            {!isPaid && extraScreens > 0 && (
+                <div className="mb-6 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-zinc-700">
+                    The free plan includes {planLimit} screen{planLimit === 1 ? '' : 's'}, but you have {screenList.length}.
+                    Your extra screens are kept (nothing has been deleted) until {keepUntil}
+                    {isOwner ? ' — upgrade any time to run them all again.' : '.'}
+                </div>
+            )}
 
             {/* Empty state */}
             {screenList.length === 0 && (
