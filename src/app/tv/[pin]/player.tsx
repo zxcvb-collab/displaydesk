@@ -33,6 +33,9 @@ type Slide = {
     duration?: number
     name?: string
     offlineImage?: string
+    // Owner opted this video in to audio (muted otherwise — screens are
+    // silent by default). Needs the tap-to-start gesture to have happened.
+    sound?: boolean
 }
 
 // Cycles through an image element's urls on its own timer, independent of
@@ -224,6 +227,19 @@ export default function TVPlayer({
     const uploadedVideos = getUploadedVideos(slides)
     const allSlides = slides
 
+    // The YouTube player is created muted (so autoplay is allowed); a slide
+    // that opted in to sound unmutes it. Mute state persists across
+    // loadVideoById, so every slide sets it explicitly.
+    const applyYouTubeSound = useCallback((sound: boolean) => {
+        const yt = ytPlayer.current
+        if (!yt) return
+        try {
+            if (sound) { yt.unMute?.(); yt.setVolume?.(100) } else { yt.mute?.() }
+        } catch {
+            // player not ready — the next slide load re-applies it
+        }
+    }, [])
+
     const playSlideIndex = useCallback((index: number, allSlides: Slide[]) => {
         if (allSlides.length === 0) return
         const safeIndex = index % allSlides.length
@@ -264,6 +280,7 @@ export default function TVPlayer({
             const videoId = getYouTubeId(slide.url)
             if (videoId && ytPlayer.current) {
                 ytPlayer.current.loadVideoById(videoId)
+                applyYouTubeSound(!!slide.sound)
                 if (startedRef.current) armStallWatchdog(() => ytErrorHandlerRef.current(0))
             }
         } else if (slide.type === 'video' && slide.url) {
@@ -273,8 +290,17 @@ export default function TVPlayer({
                 const url = slide.url
                 const startPlayback = (src: string) => {
                     if (!videoRef.current) return
-                    videoRef.current.src = src
-                    videoRef.current.play().catch(() => {
+                    const el = videoRef.current
+                    el.muted = !slide.sound
+                    el.src = src
+                    el.play().catch(() => {
+                        // Browser refused audible autoplay — retry muted
+                        // rather than treating it as a failed video
+                        if (!el.muted) {
+                            el.muted = true
+                            el.play().catch(() => handleVideoErrorRef.current())
+                            return
+                        }
                         handleVideoErrorRef.current()
                     })
                 }
@@ -313,7 +339,7 @@ export default function TVPlayer({
                 advanceSlideRef.current()
             }, seconds * 1000)
         }
-    }, [])
+    }, [applyYouTubeSound])
 
     const advanceSlide = useCallback(() => {
         setSlides((current) => {
@@ -557,6 +583,7 @@ export default function TVPlayer({
             videoRef.current.play().catch(() => {})
         }
         if (currentType === 'youtube' && ytPlayer.current?.playVideo) {
+            applyYouTubeSound(!!slidesRef.current[currentIndex.current]?.sound)
             ytPlayer.current.playVideo()
             // First slide never went through playSlideIndex's stall watchdog
             // (it wasn't "started" yet) — arm it now
@@ -566,7 +593,7 @@ export default function TVPlayer({
                 ytErrorHandlerRef.current(0)
             }, STALL_TIMEOUT_MS)
         }
-    }, [currentType])
+    }, [currentType, applyYouTubeSound])
 
     // Poll for slide updates every 60 s; also reports a heartbeat + current
     // slide index + open/closed state so the admin dashboard can show live

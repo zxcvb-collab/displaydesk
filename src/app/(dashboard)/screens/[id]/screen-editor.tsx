@@ -18,6 +18,7 @@ type Slide = {
     duration?: number
     name?: string
     offlineImage?: string
+    sound?: boolean
 }
 
 type Screen = {
@@ -301,6 +302,15 @@ export default function ScreenEditor({
         }
     }
 
+    function setSlideSound(index: number, on: boolean) {
+        updateSlides(slides.map((s, i) => {
+            if (i !== index) return s
+            if (on) return { ...s, sound: true }
+            const { sound: _removed, ...rest } = s
+            return rest
+        }))
+    }
+
     function setSlideDuration(index: number, seconds: number) {
         updateSlides(slides.map((s, i) => (i === index ? { ...s, duration: Math.max(2, seconds || DEFAULT_IMAGE_SLIDE_SECONDS) } : s)))
     }
@@ -562,6 +572,20 @@ export default function ScreenEditor({
                                         </button>
                                     </div>
                                 </div>
+
+                                {(videoId || isUploaded) && (
+                                    <label className="mt-3 pt-3 border-t border-zinc-100 flex items-center gap-2 text-xs text-zinc-600 cursor-pointer">
+                                        <input
+                                            type="checkbox"
+                                            checked={!!slide.sound}
+                                            onChange={(e) => setSlideSound(i, e.target.checked)}
+                                        />
+                                        Play sound
+                                        <span className="text-zinc-400">
+                                            — screens are silent by default. The TV needs one tap on &ldquo;Tap to start&rdquo; after it loads (the Fire TV app does this itself).
+                                        </span>
+                                    </label>
+                                )}
 
                                 {(videoId || isUploaded) && (
                                     <div className="mt-3 pt-3 border-t border-zinc-100 flex items-center gap-3">
